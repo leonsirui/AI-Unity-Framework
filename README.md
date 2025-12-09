@@ -63,39 +63,73 @@
 📁 项目结构
 
 	Assets/
+
 	├── Scripts/
+
 	│   ├── Core/                    # 核心系统
+
 	│   │   ├── GameBootstrap.cs
+
 	│   │   ├── GameConfig.cs
+
 	│   │   └── GameStateManager.cs
+
 	│   ├── ECS/                     # ECS相关
+
 	│   │   ├── Components/          # 组件定义
+
 	│   │   ├── Systems/             # 系统实现
+
 	│   │   ├── Authoring/          # Authoring组件
+
 	│   │   └── Jobs/               # Job系统
+
 	│   ├── Managers/               # 管理器
+
 	│   │   ├── ResourceManager.cs
+
 	│   │   ├── UIManager.cs
+
 	│   │   ├── AudioManager.cs
+
 	│   │   ├── InputManager.cs
+
 	│   │   ├── SceneManager.cs
+
 	│   │   ├── SaveManager.cs
+
 	│   │   └── PoolManager.cs
+
 	│   ├── UI/                     # UI面板
+
 	│   │   ├── MainMenuPanel.cs
+
 	│   │   ├── GameHUDPanel.cs
+
 	│   │   └── SettingsPanel.cs
+
 	│   ├── Utilities/              # 工具类
+
 	│   │   ├── MathUtility.cs
+
 	│   │   ├── Extensions.cs
+
 	│   │   └── DebugUtility.cs
+
 	│   ├── Data/                   # 数据表
+
 	│   ├── Localization/           # 本地化
+
 	│   └── VFX/                    # 特效管理
+
 	├── Resources/
+
 	├── StreamingAssets/
+
 	├── AddressableAssets/
+
 	└── Editor/                     # 编辑器工具
+
 
 🆘 常见问题
 Q: ECS World未初始化？
