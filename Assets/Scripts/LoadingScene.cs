@@ -33,8 +33,7 @@ namespace GameFramework.Scenes
             UpdateProgress("初始化输入系统...", 0.7f);
             Managers.InputManager.Instance.Initialize();
 
-            UpdateProgress("加载数据表...", 0.8f);
-            Data.DataTableManager.Instance.Initialize();
+           /* UpdateProgress("加载数据表...", 0.8f);*/
 
             UpdateProgress("初始化本地化...", 0.9f);
             Localization.LocalizationManager.Instance.Initialize();

@@ -62,25 +62,6 @@ namespace GameFramework.Events
     public interface IGameEvent { }
 
     // ÊÂ¼þÊ¾Àý
-    public struct PlayerDiedEvent : IGameEvent
-    {
-        public Unity.Entities.Entity PlayerEntity;
-        public float DeathTime;
-    }
-
-    public struct EnemyKilledEvent : IGameEvent
-    {
-        public Unity.Entities.Entity EnemyEntity;
-        public Unity.Entities.Entity KillerEntity;
-        public int XPReward;
-    }
-
-    public struct LevelUpEvent : IGameEvent
-    {
-        public int NewLevel;
-        public int RequiredXP;
-    }
-
     public struct GamePausedEvent : IGameEvent
     {
         public bool IsPaused;

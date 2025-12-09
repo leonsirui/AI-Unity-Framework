@@ -1,4 +1,8 @@
+using Cysharp.Threading.Tasks;
+using GameFramework.Core;
 using GameFramework.ECS.Components;
+using GameFramework.Managers;
+using System.Collections.Generic;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Rendering;
@@ -10,223 +14,112 @@ namespace GameFramework.ECS
 {
     public class EntityFactory
     {
-        private EntityManager _entityManager;
+        private readonly EntityManager _entityManager;
+
+        // 缓存原型实体：Key = ConfigID, Value = Entity(带有RenderMesh和默认数据的原型)
+        private readonly Dictionary<int, Entity> _entityPrefabCache = new Dictionary<int, Entity>();
 
         public EntityFactory(EntityManager entityManager)
         {
             _entityManager = entityManager;
         }
 
-        private void AddRenderMesh(Entity entity, Mesh mesh, Material material, float scale = 1f)
+        /// <summary>
+        /// 释放所有缓存的原型实体（在场景切换或销毁时调用）
+        /// </summary>
+        public void Dispose()
         {
-            if (mesh == null || material == null) return;
+            // EntityManager 会在 World 销毁时自动清理实体，但如果需要手动清理缓存引用：
+            _entityPrefabCache.Clear();
+        }
 
-            // 构建渲染描述
-            var renderMeshArray = new RenderMeshArray(new Material[] { material }, new Mesh[] { mesh });
+        #region 核心资源加载与原型构建
+
+        /// <summary>
+        /// 获取或创建原型实体。
+        /// 如果缓存中有，直接返回；如果没有，从配置读取路径->加载资源->创建ECS实体->存入缓存。
+        /// </summary>
+        private async UniTask<Entity> GetOrCreateEntityPrefabAsync(int configId, string resourcePath)
+        {
+            // 1. 检查缓存
+            if (_entityPrefabCache.TryGetValue(configId, out Entity prefabEntity))
+            {
+                // 确保实体仍然有效（防止 World 被重置后缓存失效）
+                if (_entityManager.Exists(prefabEntity))
+                {
+                    return prefabEntity;
+                }
+                _entityPrefabCache.Remove(configId);
+            }
+
+            // 2. 真实加载逻辑 (Addressables)
+            // 假设资源是一个Prefab，我们需要从中提取 Mesh 和 Material
+            // 或者资源直接就是 Mesh/Material 的 Addressable Group，这里演示加载 GameObject Prefab 的情况
+            GameObject assetGo = await ResourceManager.Instance.LoadAssetAsync<GameObject>(resourcePath);
+
+            if (assetGo == null)
+            {
+                Debug.LogError($"[EntityFactory] 资源加载失败: ID={configId}, Path={resourcePath}");
+                return Entity.Null;
+            }
+
+            // 3. 从 GameObject 提取渲染数据
+            var meshFilter = assetGo.GetComponentInChildren<MeshFilter>();
+            var meshRenderer = assetGo.GetComponentInChildren<MeshRenderer>();
+
+            if (meshFilter == null || meshRenderer == null)
+            {
+                Debug.LogError($"[EntityFactory] 资源缺少 MeshFilter 或 MeshRenderer: {resourcePath}");
+                return Entity.Null;
+            }
+
+            Mesh mesh = meshFilter.sharedMesh;
+            Material material = meshRenderer.sharedMaterial;
+
+            // 4. 创建 ECS 实体
+            prefabEntity = _entityManager.CreateEntity();
+
+            // 5. 添加渲染组件 (RenderMeshArray)
+            // 这是一个比较重的操作，所以我们只对原型做一次。
+            // 所有从这个原型 Instantiate 出来的实体都会共享这个 RenderMeshArray，从而自动合批。
+            var renderMeshArray = new RenderMeshArray(new[] { material }, new[] { mesh });
             var renderMeshDescription = new RenderMeshDescription(
                 shadowCastingMode: ShadowCastingMode.On,
                 receiveShadows: true
             );
 
-            // 使用官方 Utility 添加组件 (这会自动添加 RenderMesh, RenderBounds, LocalToWorld 等)
             RenderMeshUtility.AddComponents(
-                entity,
+                prefabEntity,
                 _entityManager,
                 renderMeshDescription,
                 renderMeshArray,
                 MaterialMeshInfo.FromRenderMeshArrayIndices(0, 0)
             );
 
-            // 确保有 LocalTransform (如果 RenderMeshUtility 没加)
-            if (!_entityManager.HasComponent<LocalTransform>(entity))
+            // 6. 添加基础 Transform 组件
+            if (!_entityManager.HasComponent<LocalTransform>(prefabEntity))
             {
-                _entityManager.AddComponentData(entity, new LocalTransform { Scale = scale, Rotation = quaternion.identity, Position = float3.zero });
+                _entityManager.AddComponentData(prefabEntity, new LocalTransform { Scale = 1f, Rotation = quaternion.identity, Position = float3.zero });
             }
+
+            // 7. 标记为 Prefab (可选，但这能让某些系统在查询时自动忽略它)
+            _entityManager.AddComponent<Prefab>(prefabEntity);
+
+            // 8. 存入缓存
+            _entityPrefabCache[configId] = prefabEntity;
+
+            return prefabEntity;
         }
 
-        public Entity CreatePlayer(float3 position,Mesh mesh, Material material)
-        {
-            var archetype = _entityManager.CreateArchetype(
-                typeof(PlayerTag),
-                typeof(LocalTransform),
-                typeof(MoveComponent),
-                typeof(HealthComponent),
-                typeof(InputComponent),
-                typeof(ExperienceComponent)
-            );
+        #endregion
 
-            var entity = _entityManager.CreateEntity(archetype);
+        #region 具体创建方法
 
-            _entityManager.SetComponentData(entity, new LocalTransform
-            {
-                Position = position,
-                Rotation = quaternion.identity,
-                Scale = 1f
-            });
 
-            _entityManager.SetComponentData(entity, new MoveComponent
-            {
-                Speed = 5f,
-                Direction = float3.zero
-            });
+        #endregion
 
-            _entityManager.SetComponentData(entity, new HealthComponent
-            {
-                Current = 100f,
-                Max = 100f
-            });
-
-            _entityManager.SetComponentData(entity, new ExperienceComponent
-            {
-                Level = 1,
-                CurrentXP = 0,
-                RequiredXP = 100
-            });
-
-            AddRenderMesh(entity, mesh, material);
-
-            return entity;
-        }
-
-        public Entity CreateEnemy(float3 position, EnemyType enemyType, Mesh mesh, Material material){
-            var archetype = _entityManager.CreateArchetype(
-                typeof(EnemyTag),
-                typeof(LocalTransform),
-                typeof(MoveComponent),
-                typeof(HealthComponent),
-                typeof(AttackComponent)
-            );
-
-            var entity = _entityManager.CreateEntity(archetype);
-
-            _entityManager.SetComponentData(entity, new LocalTransform
-            {
-                Position = position,
-                Rotation = quaternion.identity,
-                Scale = 1f
-            });
-
-            var stats = GetEnemyStats(enemyType);
-
-            _entityManager.SetComponentData(entity, new MoveComponent
-            {
-                Speed = stats.MoveSpeed,
-                Direction = float3.zero
-            });
-
-            _entityManager.SetComponentData(entity, new HealthComponent
-            {
-                Current = stats.Health,
-                Max = stats.Health
-            });
-
-            _entityManager.SetComponentData(entity, new AttackComponent
-            {
-                Damage = stats.Damage,
-                Range = stats.Range,
-                Cooldown = stats.AttackCooldown,
-                LastAttackTime = 0
-            });
-
-            AddRenderMesh(entity, mesh, material);
-
-            return entity;
-        }
-
-        public Entity CreateProjectile(float3 position, float3 direction, Entity owner, Mesh mesh, Material material)
-        {
-            var archetype = _entityManager.CreateArchetype(
-                typeof(LocalTransform),
-                typeof(MoveComponent),
-                typeof(ProjectileComponent)
-            );
-
-            var entity = _entityManager.CreateEntity(archetype);
-
-            _entityManager.SetComponentData(entity, new LocalTransform
-            {
-                Position = position,
-                Rotation = quaternion.LookRotation(direction, math.up()),
-                Scale = 1f
-            });
-
-            _entityManager.SetComponentData(entity, new MoveComponent
-            {
-                Speed = 10f,
-                Direction = direction
-            });
-
-            // --- 修改部分开始 ---
-            // 修正方法：通过 entityManager.World.Time 获取当前模拟时间
-            _entityManager.SetComponentData(entity, new ProjectileComponent
-            {
-                Damage = 10f,
-                Owner = owner,
-                Lifetime = 5f,
-                // 这里使用 _entityManager.World.Time.ElapsedTime
-                SpawnTime = (float)_entityManager.World.Time.ElapsedTime
-            });
-            // --- 修改部分结束 ---
-            AddRenderMesh(entity, mesh, material);
-
-            return entity;
-        }
-
-        private EnemyStats GetEnemyStats(EnemyType type)
-        {
-            return type switch
-            {
-                EnemyType.Weak => new EnemyStats
-                {
-                    Health = 50f,
-                    MoveSpeed = 2f,
-                    Damage = 5f,
-                    Range = 1.5f,
-                    AttackCooldown = 1.5f
-                },
-                EnemyType.Normal => new EnemyStats
-                {
-                    Health = 100f,
-                    MoveSpeed = 3f,
-                    Damage = 10f,
-                    Range = 2f,
-                    AttackCooldown = 1f
-                },
-                EnemyType.Strong => new EnemyStats
-                {
-                    Health = 200f,
-                    MoveSpeed = 4f,
-                    Damage = 20f,
-                    Range = 2.5f,
-                    AttackCooldown = 0.8f
-                },
-                _ => new EnemyStats()
-            };
-        }
-    }
-
-    public enum EnemyType
-    {
-        Weak,
-        Normal,
-        Strong
-    }
-
-    public struct EnemyStats
-    {
-        public float Health;
-        public float MoveSpeed;
-        public float Damage;
-        public float Range;
-        public float AttackCooldown;
-    }
-
-    // 添加弹丸组件
-    public struct ProjectileComponent : IComponentData
-    {
-        public float Damage;
-        public Entity Owner;
-        public float Lifetime;
-        public float SpawnTime;
+        // ----------------------------------------------------------------------
+        // 辅助：不再需要硬编码的 GetEnemyStats，数据应直接来自 Luban Config
+        // ----------------------------------------------------------------------
     }
 }

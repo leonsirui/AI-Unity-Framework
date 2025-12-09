@@ -25,7 +25,7 @@ namespace GameFramework.Examples
             {
                 _entityManager = world.EntityManager;
                 // 查询带有 PlayerTag 和 LocalTransform 的实体
-                _playerQuery = _entityManager.CreateEntityQuery(typeof(PlayerTag), typeof(LocalTransform));
+                /*_playerQuery = _entityManager.CreateEntityQuery(typeof(PlayerTag), typeof(LocalTransform));*/
             }
 
             // 创建一个不可见的 GameObject 作为摄像机焦点

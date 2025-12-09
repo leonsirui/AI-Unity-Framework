@@ -149,11 +149,11 @@ namespace GameFramework.Editor
                 EditorGUILayout.LabelField($"总数量: {totalCount}");
                 // --- 修改结束 ---
 
-                var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<ECS.Components.PlayerTag>());
+                /*var query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<ECS.Components.PlayerTag>());
                 EditorGUILayout.LabelField($"玩家实体: {query.CalculateEntityCount()}");
 
                 query = world.EntityManager.CreateEntityQuery(ComponentType.ReadOnly<ECS.Components.EnemyTag>());
-                EditorGUILayout.LabelField($"敌人实体: {query.CalculateEntityCount()}");
+                EditorGUILayout.LabelField($"敌人实体: {query.CalculateEntityCount()}");*/
 
                 EditorGUI.indentLevel--;
             }

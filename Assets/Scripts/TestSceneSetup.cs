@@ -37,7 +37,7 @@ namespace GameFramework.Examples
 
             var entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
             var factory = new EntityFactory(entityManager);
-
+            /*
             // 1. 创建 Player
             if (createTestPlayer)
             {
@@ -47,24 +47,8 @@ namespace GameFramework.Examples
 
                 factory.CreatePlayer(new float3(0, 1, 0), playerMesh, playerMat);
             }
+            */
 
-            // 2. 创建 Enemies (海量)
-            if (createTestEnemies)
-            {
-                if (enemyMesh == null) enemyMesh = GetBuiltinMesh(PrimitiveType.Cube);
-                if (enemyMat == null) enemyMat = GetBuiltinMaterial(Color.red);
-
-                for (int i = 0; i < testEnemyCount; i++)
-                {
-                    // 螺旋排列或者随机排列
-                    float angle = i * 0.2f;
-                    float dist = 5f + i * 0.05f;
-                    float3 pos = new float3(Mathf.Cos(angle) * dist, 1f, Mathf.Sin(angle) * dist);
-
-                    factory.CreateEnemy(pos, EnemyType.Normal, enemyMesh, enemyMat);
-                }
-                Debug.Log($"Generated {testEnemyCount} enemies with GPU Instancing.");
-            }
         }
 
         private void CreateEnvironment()
@@ -118,8 +102,8 @@ namespace GameFramework.Examples
                 var controllerGO = new GameObject("CameraController");
                 controllerGO.AddComponent<CameraController>();
             }
-            var syncGO = new GameObject("PlayerCameraSync");
-            syncGO.AddComponent<PlayerCameraSync>();
+            //TODO var syncGO = new GameObject("PlayerCameraSync");
+            //syncGO.AddComponent<PlayerCameraSync>();
             // 注意：此时我们还没有 Target 给摄像机，
             // Target 会在 EntityVisualSyncManager 生成玩家模型后自动设置。
         }

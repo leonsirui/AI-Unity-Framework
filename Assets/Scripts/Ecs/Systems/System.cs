@@ -17,7 +17,7 @@ namespace GameFramework.ECS.Systems
         {
             float deltaTime = SystemAPI.Time.DeltaTime;
 
-            foreach (var (transform, move) in
+            /*foreach (var (transform, move) in
                 SystemAPI.Query<RefRW<LocalTransform>, RefRO<MoveComponent>>())
             {
                 if (math.lengthsq(move.ValueRO.Direction) > 0.001f)
@@ -26,7 +26,7 @@ namespace GameFramework.ECS.Systems
                         * move.ValueRO.Speed * deltaTime;
                     transform.ValueRW.Position += movement;
                 }
-            }
+            }*/
         }
     }
 
@@ -39,22 +39,49 @@ namespace GameFramework.ECS.Systems
     {
         protected override void OnCreate()
         {
-            // 确保 World 中有一个 GlobalInputComponent 单例
-            // 这样我们在 Burst 系统中就可以随时读取它
-            EntityManager.CreateSingleton<GlobalInputComponent>();
+            RequireForUpdate<GridConfigComponent>(); // 等待网格配置初始化
+            if (!SystemAPI.HasSingleton<GlobalInputComponent>())
+            {
+                EntityManager.CreateSingleton<GlobalInputComponent>();
+            }
         }
 
         protected override void OnUpdate()
         {
-            // 这里的 InputManager.Instance 是外部单例，必须在主线程访问
             var inputData = InputManager.Instance.GetInputData();
+            var gridConfig = SystemAPI.GetSingleton<GridConfigComponent>();
 
-            // 将数据写入 ECS 单例
+            // --- 射线检测逻辑 (使用 UnityEngine 的物理系统) ---
+            int3 hoverGridPos = int3.zero;
+            bool hasTarget = false;
+
+            if (UnityEngine.Camera.main != null)
+            {
+                UnityEngine.Ray ray = UnityEngine.Camera.main.ScreenPointToRay(UnityEngine.Input.mousePosition);
+                // 这里假设 y=0 是基准平面，你可以替换为 LayerMask 检测特定层
+                UnityEngine.Plane groundPlane = new UnityEngine.Plane(UnityEngine.Vector3.up, UnityEngine.Vector3.zero);
+
+                if (groundPlane.Raycast(ray, out float enter))
+                {
+                    UnityEngine.Vector3 hitPoint = ray.GetPoint(enter);
+                    // 将世界坐标转换为网格坐标
+                    hoverGridPos = new int3(
+                        (int)math.round(hitPoint.x / gridConfig.CellSize),
+                        0, // 暂时默认在地面，如果是多层需要根据hitPoint.y计算
+                        (int)math.round(hitPoint.z / gridConfig.CellSize)
+                    );
+                    hasTarget = true;
+                }
+            }
+
+            // 更新 ECS 中的输入单例
             SystemAPI.SetSingleton(new GlobalInputComponent
             {
-                Move = inputData.Move,
-                Fire = inputData.Fire,
-                Jump = inputData.Jump
+                // 映射按键
+                IsConfirmPlace = UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Mouse0) || UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Space),
+                IsCancelPlace = UnityEngine.Input.GetKeyDown(UnityEngine.KeyCode.Escape),
+                HoverGridPosition = hoverGridPos,
+                HasHoverTarget = hasTarget
             });
         }
     }
@@ -76,13 +103,13 @@ namespace GameFramework.ECS.Systems
 
             // 使用 Job 方式并行处理所有带 PlayerTag 的实体
             // 这在移动端上有极高的性能优势
-            new ApplyInputJob
+           /* new ApplyInputJob
             {
                 Input = globalInput
-            }.ScheduleParallel();
+            }.ScheduleParallel();*/
         }
 
-        [BurstCompile]
+       /* [BurstCompile]
         partial struct ApplyInputJob : IJobEntity
         {
             public GlobalInputComponent Input;
@@ -98,59 +125,14 @@ namespace GameFramework.ECS.Systems
                 // 2. 将输入转换为移动方向 (逻辑部分)
                 move.Direction = new float3(Input.Move.x, 0, Input.Move.y);
             }
-        }
+        }*/
     }
-
-    // ======================================================================================
-    // 3. 伤害处理系统 (优化版 - 使用 ECB 单例)
-    // ======================================================================================
-    [BurstCompile]
-    [UpdateInGroup(typeof(GameplaySystemGroup))]
-    public partial struct DamageSystem : ISystem
-    {
-        [BurstCompile]
-        public void OnUpdate(ref SystemState state)
-        {
-            // 关键修改：获取系统提供的 EndSimulation ECB 单例
-            // 这允许我们在所有计算完成后，统一在帧末尾应用变更
-            var ecbSingleton = SystemAPI.GetSingleton<EndSimulationEntityCommandBufferSystem.Singleton>();
-            var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
-
-            // 使用 ScheduleParallel 并行处理所有伤害逻辑
-            new ApplyDamageJob
-            {
-                Ecb = ecb.AsParallelWriter() // 并行写入器
-            }.ScheduleParallel();
-        }
-
-        [BurstCompile]
-        partial struct ApplyDamageJob : IJobEntity
-        {
-            public EntityCommandBuffer.ParallelWriter Ecb;
-
-            // 这里我们需要 Entity ID 来记录命令 (entityInQueryIndex 用于多线程排序)
-            void Execute(Entity entity, [EntityIndexInQuery] int sortKey, ref HealthComponent health, in DamageComponent damage)
-            {
-                health.Current -= damage.Amount;
-
-                // 移除伤害组件 (不需要立即生效，帧末尾统一移除)
-                Ecb.RemoveComponent<DamageComponent>(sortKey, entity);
-
-                // 死亡判定
-                if (health.IsDead)
-                {
-                    Ecb.AddComponent<DestroyTag>(sortKey, entity);
-                }
-            }
-        }
-    }
-
     // ======================================================================================
     // 4. 销毁系统 (优化版 - 使用 ECB 单例)
     // ======================================================================================
     [BurstCompile]
     [UpdateInGroup(typeof(GameplaySystemGroup))]
-    [UpdateAfter(typeof(DamageSystem))]
+    //[UpdateAfter(typeof(DamageSystem))]
     public partial struct DestroySystem : ISystem
     {
         [BurstCompile]
@@ -177,48 +159,4 @@ namespace GameFramework.ECS.Systems
         }
     }
 
-    // AI系统示例
-    [UpdateInGroup(typeof(GameplaySystemGroup))]
-    public partial class EnemyAISystem : SystemBase
-    {
-        protected override void OnUpdate()
-        {
-            var playerQuery = GetEntityQuery(typeof(PlayerTag), typeof(LocalTransform));
-
-            if (playerQuery.CalculateEntityCount() == 0)
-                return;
-
-            var playerTransform = playerQuery.GetSingleton<LocalTransform>();
-            var playerPos = playerTransform.Position;
-            var currentTime = (float)SystemAPI.Time.ElapsedTime;
-
-            Entities
-                .WithAll<EnemyTag>()
-                .ForEach((ref MoveComponent move,
-                         ref AttackComponent attack,
-                         in LocalTransform transform) =>
-                {
-                    float3 direction = playerPos - transform.Position;
-                    float distance = math.length(direction);
-
-                    if (distance > attack.Range)
-                    {
-                        // 移动向玩家
-                        move.Direction = direction / distance;
-                    }
-                    else
-                    {
-                        // 在攻击范围内,停止移动
-                        move.Direction = float3.zero;
-
-                        // 尝试攻击
-                        if (currentTime - attack.LastAttackTime >= attack.Cooldown)
-                        {
-                            attack.LastAttackTime = currentTime;
-                            // 触发攻击事件或添加伤害组件到玩家
-                        }
-                    }
-                }).Run();
-        }
-    }
 }
