@@ -3,6 +3,7 @@ using GameFramework.Core;
 using GameFramework.ECS.Components;
 using GameFramework.Managers;
 using System.Collections.Generic;
+using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Rendering;
@@ -24,53 +25,76 @@ namespace GameFramework.ECS
             _entityManager = entityManager;
         }
 
-        /// <summary>
-        /// 释放所有缓存的原型实体（在场景切换或销毁时调用）
-        /// </summary>
         public void Dispose()
         {
-            // EntityManager 会在 World 销毁时自动清理实体，但如果需要手动清理缓存引用：
             _entityPrefabCache.Clear();
         }
 
         #region 核心资源加载与原型构建
 
         /// <summary>
-        /// 获取或创建原型实体。
-        /// 如果缓存中有，直接返回；如果没有，从配置读取路径->加载资源->创建ECS实体->存入缓存。
+        /// 【新增公开接口】预加载实体原型
         /// </summary>
+        public async UniTask<Entity> LoadEntityArchetypeAsync(int configId, string resourcePath)
+        {
+            return await GetOrCreateEntityPrefabAsync(configId, resourcePath);
+        }
+
+        /// <summary>
+        /// 【新增公开接口】同步生成实体（必须确保资源已通过 LoadEntityArchetypeAsync 加载）
+        /// </summary>
+        public Entity SpawnEntity(int configId, float3 position, quaternion rotation, float scale = 1f)
+        {
+            if (!_entityPrefabCache.TryGetValue(configId, out Entity prefabEntity))
+            {
+                Debug.LogError($"[EntityFactory] 原型未加载，请先调用 LoadEntityArchetypeAsync. ConfigID: {configId}");
+                return Entity.Null;
+            }
+
+            // ECS 实例化非常快
+            Entity newEntity = _entityManager.Instantiate(prefabEntity);
+
+            // 设置位置信息
+            _entityManager.SetComponentData(newEntity, new LocalTransform
+            {
+                Position = position,
+                Rotation = rotation,
+                Scale = scale
+            });
+
+            // 移除 Prefab 标签，这样它就会被 Systems 处理并渲染
+            _entityManager.RemoveComponent<Prefab>(newEntity);
+
+            return newEntity;
+        }
+
+        // ... (保留你原有的 GetOrCreateEntityPrefabAsync 私有方法不变) ...
         private async UniTask<Entity> GetOrCreateEntityPrefabAsync(int configId, string resourcePath)
         {
             // 1. 检查缓存
             if (_entityPrefabCache.TryGetValue(configId, out Entity prefabEntity))
             {
-                // 确保实体仍然有效（防止 World 被重置后缓存失效）
-                if (_entityManager.Exists(prefabEntity))
-                {
-                    return prefabEntity;
-                }
+                if (_entityManager.Exists(prefabEntity)) return prefabEntity;
                 _entityPrefabCache.Remove(configId);
             }
 
-            // 2. 真实加载逻辑 (Addressables)
-            // 假设资源是一个Prefab，我们需要从中提取 Mesh 和 Material
-            // 或者资源直接就是 Mesh/Material 的 Addressable Group，这里演示加载 GameObject Prefab 的情况
+            // 2. 加载资源 (Addressables)
             GameObject assetGo = await ResourceManager.Instance.LoadAssetAsync<GameObject>(resourcePath);
+            if (assetGo == null) return Entity.Null;
 
-            if (assetGo == null)
-            {
-                Debug.LogError($"[EntityFactory] 资源加载失败: ID={configId}, Path={resourcePath}");
-                return Entity.Null;
-            }
-
-            // 3. 从 GameObject 提取渲染数据
+            // 3. 提取渲染数据
             var meshFilter = assetGo.GetComponentInChildren<MeshFilter>();
             var meshRenderer = assetGo.GetComponentInChildren<MeshRenderer>();
 
+            // 如果是空物体（比如只有碰撞体），处理一下
             if (meshFilter == null || meshRenderer == null)
             {
-                Debug.LogError($"[EntityFactory] 资源缺少 MeshFilter 或 MeshRenderer: {resourcePath}");
-                return Entity.Null;
+                Debug.LogWarning($"[EntityFactory] 资源没有 Mesh，创建纯数据实体: {resourcePath}");
+                prefabEntity = _entityManager.CreateEntity();
+                _entityManager.AddComponentData(prefabEntity, new LocalTransform { Scale = 1f, Rotation = quaternion.identity });
+                _entityManager.AddComponent<Prefab>(prefabEntity);
+                _entityPrefabCache[configId] = prefabEntity;
+                return prefabEntity;
             }
 
             Mesh mesh = meshFilter.sharedMesh;
@@ -79,12 +103,10 @@ namespace GameFramework.ECS
             // 4. 创建 ECS 实体
             prefabEntity = _entityManager.CreateEntity();
 
-            // 5. 添加渲染组件 (RenderMeshArray)
-            // 这是一个比较重的操作，所以我们只对原型做一次。
-            // 所有从这个原型 Instantiate 出来的实体都会共享这个 RenderMeshArray，从而自动合批。
+            // 5. 添加渲染组件
             var renderMeshArray = new RenderMeshArray(new[] { material }, new[] { mesh });
             var renderMeshDescription = new RenderMeshDescription(
-                shadowCastingMode: ShadowCastingMode.On,
+                shadowCastingMode: ShadowCastingMode.Off, // 网格通常不需要投射阴影
                 receiveShadows: true
             );
 
@@ -96,30 +118,16 @@ namespace GameFramework.ECS
                 MaterialMeshInfo.FromRenderMeshArrayIndices(0, 0)
             );
 
-            // 6. 添加基础 Transform 组件
-            if (!_entityManager.HasComponent<LocalTransform>(prefabEntity))
-            {
-                _entityManager.AddComponentData(prefabEntity, new LocalTransform { Scale = 1f, Rotation = quaternion.identity, Position = float3.zero });
-            }
+            // 6. 基础组件
+            _entityManager.AddComponentData(prefabEntity, new LocalTransform { Scale = 1f, Rotation = quaternion.identity });
+            _entityManager.AddComponent<Prefab>(prefabEntity); // 标记为Prefab
 
-            // 7. 标记为 Prefab (可选，但这能让某些系统在查询时自动忽略它)
-            _entityManager.AddComponent<Prefab>(prefabEntity);
-
-            // 8. 存入缓存
+            // 8. 缓存
             _entityPrefabCache[configId] = prefabEntity;
 
             return prefabEntity;
         }
 
         #endregion
-
-        #region 具体创建方法
-
-
-        #endregion
-
-        // ----------------------------------------------------------------------
-        // 辅助：不再需要硬编码的 GetEnemyStats，数据应直接来自 Luban Config
-        // ----------------------------------------------------------------------
     }
 }
