@@ -34,6 +34,7 @@ namespace GameFramework.Managers
             CreateLayers(canvasGO.transform);
 
             Debug.Log("UI系统初始化完成");
+            
         }
 
         private void CreateLayers(Transform root)

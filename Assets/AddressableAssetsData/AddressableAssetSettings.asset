@@ -15,7 +15,7 @@ MonoBehaviour:
   m_DefaultGroup: 33312e7ee8c7d3a4a9f77a10df97c1a7
   m_currentHash:
     serializedVersion: 2
-    Hash: fc30017a5b5903a83ba62b87c1f427e4
+    Hash: 461057d9c0ed192ef9acbb0a3f12d191
   m_OptimizeCatalogSize: 0
   m_BuildRemoteCatalog: 0
   m_BundleLocalCatalog: 0
@@ -89,6 +89,7 @@ MonoBehaviour:
     m_LabelNames:
     - default
     - Config
+    - UICanvas
   m_SchemaTemplates: []
   m_GroupTemplateObjects:
   - {fileID: 11400000, guid: 271239c1bf582894880f459dd35d3c16, type: 2}

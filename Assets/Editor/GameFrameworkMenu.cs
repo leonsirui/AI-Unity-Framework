@@ -15,7 +15,6 @@ namespace GameFramework.Editor
 
             managersGO.AddComponent<Managers.ResourceManager>();
             managersGO.AddComponent<Managers.UIManager>();
-            managersGO.AddComponent<Managers.AudioManager>();
             managersGO.AddComponent<Managers.InputManager>();
             managersGO.AddComponent<Managers.SceneManager>();
             managersGO.AddComponent<Managers.SaveManager>();

@@ -1,8 +1,10 @@
 using GameFramework.ECS.Components;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Rendering;
 using Unity.Transforms;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace GameFramework.ECS
 {
@@ -15,7 +17,34 @@ namespace GameFramework.ECS
             _entityManager = entityManager;
         }
 
-        public Entity CreatePlayer(float3 position)
+        private void AddRenderMesh(Entity entity, Mesh mesh, Material material, float scale = 1f)
+        {
+            if (mesh == null || material == null) return;
+
+            // 构建渲染描述
+            var renderMeshArray = new RenderMeshArray(new Material[] { material }, new Mesh[] { mesh });
+            var renderMeshDescription = new RenderMeshDescription(
+                shadowCastingMode: ShadowCastingMode.On,
+                receiveShadows: true
+            );
+
+            // 使用官方 Utility 添加组件 (这会自动添加 RenderMesh, RenderBounds, LocalToWorld 等)
+            RenderMeshUtility.AddComponents(
+                entity,
+                _entityManager,
+                renderMeshDescription,
+                renderMeshArray,
+                MaterialMeshInfo.FromRenderMeshArrayIndices(0, 0)
+            );
+
+            // 确保有 LocalTransform (如果 RenderMeshUtility 没加)
+            if (!_entityManager.HasComponent<LocalTransform>(entity))
+            {
+                _entityManager.AddComponentData(entity, new LocalTransform { Scale = scale, Rotation = quaternion.identity, Position = float3.zero });
+            }
+        }
+
+        public Entity CreatePlayer(float3 position,Mesh mesh, Material material)
         {
             var archetype = _entityManager.CreateArchetype(
                 typeof(PlayerTag),
@@ -54,11 +83,12 @@ namespace GameFramework.ECS
                 RequiredXP = 100
             });
 
+            AddRenderMesh(entity, mesh, material);
+
             return entity;
         }
 
-        public Entity CreateEnemy(float3 position, EnemyType enemyType)
-        {
+        public Entity CreateEnemy(float3 position, EnemyType enemyType, Mesh mesh, Material material){
             var archetype = _entityManager.CreateArchetype(
                 typeof(EnemyTag),
                 typeof(LocalTransform),
@@ -98,10 +128,12 @@ namespace GameFramework.ECS
                 LastAttackTime = 0
             });
 
+            AddRenderMesh(entity, mesh, material);
+
             return entity;
         }
 
-        public Entity CreateProjectile(float3 position, float3 direction, Entity owner)
+        public Entity CreateProjectile(float3 position, float3 direction, Entity owner, Mesh mesh, Material material)
         {
             var archetype = _entityManager.CreateArchetype(
                 typeof(LocalTransform),
@@ -135,6 +167,7 @@ namespace GameFramework.ECS
                 SpawnTime = (float)_entityManager.World.Time.ElapsedTime
             });
             // --- 修改部分结束 ---
+            AddRenderMesh(entity, mesh, material);
 
             return entity;
         }

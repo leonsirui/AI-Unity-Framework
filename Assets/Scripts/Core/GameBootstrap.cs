@@ -1,16 +1,14 @@
 using Cysharp.Threading.Tasks;
 using GameFramework.ECS.Systems;
+using GameFramework.Examples;
 using GameFramework.Managers;
 using Unity.Entities;
-using UnityEditor.EditorTools;
 using UnityEngine;
-using UnityEngine.SceneManagement;
-using SceneManager = GameFramework.Managers.SceneManager;
 
 namespace GameFramework.Core
 {
     /// <summary>
-    /// 游戏启动入口
+    /// 游戏启动入口 (重构版：直接进入 TestScene 逻辑)
     /// </summary>
     public class GameBootstrap : MonoBehaviour
     {
@@ -37,34 +35,30 @@ namespace GameFramework.Core
         {
             Debug.Log("=== 游戏启动 ===");
 
-            // 1. 初始化配置
+            // 1. 基础系统初始化
             ConfigManager.Instance.Initialize(gameConfig);
-
-            // 2. 初始化资源系统
             await ResourceManager.Instance.InitializeAsync();
-
-            // 3. 初始化输入系统
             InputManager.Instance.Initialize();
-
-            // 4. 初始化音频系统
-            AudioManager.Instance.Initialize();
-
-            // 5. 初始化UI系统
-            //await UIManager.Instance.InitializeAsync();
-
-            // 6. 初始化ECS世界
-            InitializeECSWorld();
-
-            // 7. 初始化存档系统
             SaveManager.Instance.Initialize();
-
-            // 8. 初始化对象池
             PoolManager.Instance.Initialize();
 
-            // 9. 进入主菜单
-            await SceneManager.Instance.LoadSceneAsync("MainMenu");
+            // 2. 初始化ECS世界
+            InitializeECSWorld();
 
-            Debug.Log("=== 游戏启动完成 ===");
+            var setup = FindObjectOfType<TestSceneSetup>();
+            if (setup == null)
+            {
+                var go = new GameObject("TestSceneSetup");
+                setup = go.AddComponent<TestSceneSetup>();
+            }
+
+            // 手动调用场景搭建
+            setup.SetupTestScene();
+
+            // 5. 切换到游戏状态
+            GameStateManager.Instance.ChangeState(GameState.Playing);
+
+            Debug.Log("=== 游戏启动完成 (TestScene Mode) ===");
         }
 
         private void InitializeECSWorld()

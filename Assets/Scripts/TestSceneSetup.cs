@@ -1,130 +1,144 @@
+// 确保项目引入了 Cinemachine，否则注释掉相关行
+using Cinemachine;
+using GameFramework.Camera;
+using GameFramework.ECS;
+using GameFramework.ECS.Components;
+using Unity.Entities;
+using Unity.Mathematics;
+using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 
 namespace GameFramework.Examples
 {
     /// <summary>
-    /// 测试场景设置助手
+    /// 测试场景构建器 (ECS + Cinemachine 环境)
     /// </summary>
     public class TestSceneSetup : MonoBehaviour
     {
+        [Header("Entity Visual Assets")]
+        // 在 Inspector 中拖入资源，例如默认的 Capsule/Cube Mesh 和对应的 Material
+        [SerializeField] private Mesh playerMesh;
+        [SerializeField] private Material playerMat;
+        [SerializeField] private Mesh enemyMesh;
+        [SerializeField] private Material enemyMat;
+
         [Header("测试配置")]
-        [SerializeField] private bool autoSetup = true;
         [SerializeField] private bool createTestPlayer = true;
         [SerializeField] private bool createTestEnemies = true;
         [SerializeField] private int testEnemyCount = 5;
 
-        private void Start()
-        {
-            if (autoSetup)
-            {
-                SetupTestScene();
-            }
-        }
-
-        [ContextMenu("Setup Test Scene")]
+        // 公开方法，由 GameBootstrap 调用
         public void SetupTestScene()
         {
-            Debug.Log("=== 开始设置测试场景 ===");
+            Debug.Log("=== ECS High Performance Setup ===");
 
-            // 1. 创建地面
-            CreateGround();
+            CreateEnvironment();
+            CreateCameraSystem(); // 包含初始化 CameraSync
 
-            // 2. 创建光照
-            CreateLighting();
+            var entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
+            var factory = new EntityFactory(entityManager);
 
-            // 3. 创建摄像机
-            CreateCamera();
-
-            // 4. 创建玩家（如果需要）
+            // 1. 创建 Player
             if (createTestPlayer)
             {
-                CreateTestPlayer();
+                // 如果没有配置资源，加载默认内置资源兜底
+                if (playerMesh == null) playerMesh = GetBuiltinMesh(PrimitiveType.Capsule);
+                if (playerMat == null) playerMat = GetBuiltinMaterial(Color.blue);
+
+                factory.CreatePlayer(new float3(0, 1, 0), playerMesh, playerMat);
             }
 
-            // 5. 创建敌人（如果需要）
+            // 2. 创建 Enemies (海量)
             if (createTestEnemies)
             {
-                CreateTestEnemies();
-            }
+                if (enemyMesh == null) enemyMesh = GetBuiltinMesh(PrimitiveType.Cube);
+                if (enemyMat == null) enemyMat = GetBuiltinMaterial(Color.red);
 
-            Debug.Log("=== 测试场景设置完成 ===");
+                for (int i = 0; i < testEnemyCount; i++)
+                {
+                    // 螺旋排列或者随机排列
+                    float angle = i * 0.2f;
+                    float dist = 5f + i * 0.05f;
+                    float3 pos = new float3(Mathf.Cos(angle) * dist, 1f, Mathf.Sin(angle) * dist);
+
+                    factory.CreateEnemy(pos, EnemyType.Normal, enemyMesh, enemyMat);
+                }
+                Debug.Log($"Generated {testEnemyCount} enemies with GPU Instancing.");
+            }
         }
 
-        private void CreateGround()
+        private void CreateEnvironment()
         {
+            // 地面
             var ground = GameObject.CreatePrimitive(PrimitiveType.Plane);
             ground.name = "Ground";
             ground.transform.localScale = new Vector3(10, 1, 10);
-            ground.transform.position = Vector3.zero;
+            ground.GetComponent<Renderer>().material.color = new Color(0.3f, 0.5f, 0.3f);
 
-            var renderer = ground.GetComponent<Renderer>();
-            renderer.material.color = new Color(0.3f, 0.5f, 0.3f);
-
-            Debug.Log("地面创建完成");
-        }
-
-        private void CreateLighting()
-        {
+            // 光照
             var lightGO = new GameObject("Directional Light");
             var light = lightGO.AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = 1f;
             lightGO.transform.rotation = Quaternion.Euler(50, -30, 0);
-
-            Debug.Log("光照创建完成");
         }
 
-        private void CreateCamera()
+        private void CreateCameraSystem()
         {
-            var cameraGO = new GameObject("Main Camera");
-            cameraGO.tag = "MainCamera";
-            var camera = cameraGO.AddComponent<UnityEngine.Camera>();
-            camera.transform.position = new Vector3(0, 10, -10);
-            camera.transform.rotation = Quaternion.Euler(45, 0, 0);
-
-            // 添加Cinemachine
-#if CINEMACHINE
-            var vcam = cameraGO.AddComponent<Cinemachine.CinemachineVirtualCamera>();
-            vcam.m_Lens.FieldOfView = 60f;
-#endif
-
-            Debug.Log("摄像机创建完成");
-        }
-
-        private void CreateTestPlayer()
-        {
-            var playerGO = GameObject.CreatePrimitive(PrimitiveType.Capsule);
-            playerGO.name = "TestPlayer";
-            playerGO.transform.position = Vector3.zero;
-            playerGO.GetComponent<Renderer>().material.color = Color.blue;
-
-            // 添加PlayerAuthoring
-            var authoring = playerGO.AddComponent<ECS.Authoring.PlayerAuthoring>();
-
-            Debug.Log("测试玩家创建完成");
-        }
-
-        private void CreateTestEnemies()
-        {
-            for (int i = 0; i < testEnemyCount; i++)
+            // 1. 确保主摄像机存在并带有 CinemachineBrain
+            var mainCamera = UnityEngine.Camera.main;
+            if (mainCamera == null)
             {
-                float angle = (360f / testEnemyCount) * i * Mathf.Deg2Rad;
-                Vector3 position = new Vector3(
-                    Mathf.Cos(angle) * 5f,
-                    0.5f,
-                    Mathf.Sin(angle) * 5f
-                );
-
-                var enemyGO = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                enemyGO.name = $"TestEnemy_{i}";
-                enemyGO.transform.position = position;
-                enemyGO.GetComponent<Renderer>().material.color = Color.red;
-
-                // 添加EnemyAuthoring
-                var authoring = enemyGO.AddComponent<ECS.Authoring.EnemyAuthoring>();
+                var cameraGO = new GameObject("Main Camera");
+                cameraGO.tag = "MainCamera";
+                mainCamera = cameraGO.AddComponent<UnityEngine.Camera>();
+                cameraGO.AddComponent<AudioListener>();
             }
 
-            Debug.Log($"创建了 {testEnemyCount} 个测试敌人");
+            if (mainCamera.GetComponent<CinemachineBrain>() == null)
+            {
+                mainCamera.gameObject.AddComponent<CinemachineBrain>();
+            }
+
+            // 2. 创建虚拟摄像机 (Virtual Camera)
+            var vcamGO = new GameObject("CM vcam1");
+            var vcam = vcamGO.AddComponent<CinemachineVirtualCamera>();
+
+            // 设置视角参数
+            vcam.m_Lens.FieldOfView = 60f;
+            vcam.transform.rotation = Quaternion.Euler(45, 0, 0);
+
+            // 设置跟随模式 (Transposer - 固定偏移)
+            var transposer = vcam.AddCinemachineComponent<CinemachineTransposer>();
+            transposer.m_FollowOffset = new Vector3(0, 12, -10); // 上帝视角偏移
+            transposer.m_BindingMode = CinemachineTransposer.BindingMode.LockToTargetWithWorldUp;
+
+            // 3. 确保 CameraController 存在 (它是 Singleton)
+            if (CameraController.Instance == null)
+            {
+                var controllerGO = new GameObject("CameraController");
+                controllerGO.AddComponent<CameraController>();
+            }
+            var syncGO = new GameObject("PlayerCameraSync");
+            syncGO.AddComponent<PlayerCameraSync>();
+            // 注意：此时我们还没有 Target 给摄像机，
+            // Target 会在 EntityVisualSyncManager 生成玩家模型后自动设置。
+        }
+
+        // 辅助：获取内置资源（仅作兜底，实际应使用 AssetBundle 或 Addressables 加载的资源）
+        private Mesh GetBuiltinMesh(PrimitiveType type)
+        {
+            GameObject temp = GameObject.CreatePrimitive(type);
+            Mesh mesh = temp.GetComponent<MeshFilter>().sharedMesh;
+            DestroyImmediate(temp);
+            return mesh;
+        }
+
+        private Material GetBuiltinMaterial(Color color)
+        {
+            var mat = new Material(Shader.Find("Universal Render Pipeline/Lit")); // 假设是 URP
+            mat.color = color;
+            mat.enableInstancing = true; // 开启 GPU Instancing 关键！
+            return mat;
         }
     }
 }

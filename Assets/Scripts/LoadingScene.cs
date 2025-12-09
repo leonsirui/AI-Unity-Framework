@@ -30,9 +30,6 @@ namespace GameFramework.Scenes
             UpdateProgress("初始化UI系统...", 0.5f);
             await Managers.UIManager.Instance.InitializeAsync();
 
-            UpdateProgress("初始化音频系统...", 0.6f);
-            Managers.AudioManager.Instance.Initialize();
-
             UpdateProgress("初始化输入系统...", 0.7f);
             Managers.InputManager.Instance.Initialize();
 
