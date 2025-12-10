@@ -123,47 +123,70 @@ namespace GameFramework.ECS.Systems
         }
     }
 
-    // 处理生成请求的系统
+    // [核心修改] 升级生成系统，处理岛屿逻辑
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     public partial struct ObjectSpawnSystem : ISystem
     {
         public void OnUpdate(ref SystemState state)
         {
-            // 获取命令缓冲 (用于在 Job 中创建实体)
             var ecbSingleton = SystemAPI.GetSingleton<EndSimulationEntityCommandBufferSystem.Singleton>();
             var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
 
-            // 获取配置
             if (!SystemAPI.TryGetSingleton(out GridConfigComponent gridConfig)) return;
 
-            // 遍历所有请求
+            // 处理所有生成请求
             foreach (var (req, entity) in SystemAPI.Query<RefRO<PlaceObjectRequest>>().WithEntityAccess())
             {
                 var request = req.ValueRO;
 
-                // 计算实际世界坐标
+                // 1. 计算世界坐标
                 float3 worldPos = new float3(
                     request.Position.x * gridConfig.CellSize,
                     request.Position.y * gridConfig.CellSize,
                     request.Position.z * gridConfig.CellSize
                 );
 
-                // --- 真正生成实体 ---
-                // 注意：在 Pure ECS 中，通常在这里 Instantiate 一个 Prefab Entity
-                // 这里我们创建一个新实体并添加组件
+                // 2. 创建新实体 (这里通常应使用 EntityFactory.SpawnEntity，为演示简化为 CreateEntity)
+                // 实际项目中建议：var newEntity = EntityFactory.SpawnEntity(request.ObjectId, ...); 
+                // 这里演示纯 ECS 方式创建：
                 var newEntity = ecb.CreateEntity();
 
-                ecb.AddComponent(newEntity, new LocalTransform { Position = worldPos, Rotation = quaternion.identity, Scale = 1f });
+                // 3. [通用组件] 基础数据
+                ecb.AddComponent(newEntity, new LocalTransform
+                {
+                    Position = worldPos,
+                    Rotation = quaternion.identity,
+                    Scale = 1f
+                });
                 ecb.AddComponent(newEntity, new GridPositionComponent { Value = request.Position });
                 ecb.AddComponent(newEntity, new ObjectSizeComponent { Size = request.Size });
 
-                // 根据类型打标签
-                if (request.Type == PlacementType.Building)
-                    ecb.AddComponent(newEntity, new BuildingTag());
-                else if (request.Type == PlacementType.Island)
+                // 4. [分支逻辑] 移植 IslandManager 的分类处理逻辑
+                if (request.Type == PlacementType.Island)
+                {
+                    // A. 打上身份标签
                     ecb.AddComponent(newEntity, new IslandTag());
 
-                // 销毁请求实体，避免重复执行
+                    // B. [关键] 挂载岛屿数据 (替代原 IslandData 类)
+                    ecb.AddComponent(newEntity, new IslandComponent
+                    {
+                        AirspaceHeight = request.AirspaceHeight
+                    });
+
+                    // C. [核心] 挂载 "New" 标签
+                    // 这相当于调用了原项目的 GridManager.RegisterIsland()
+                    // 下一帧 IslandRegistrationSystem 会捕捉到这个标签并修改网格数据
+                    ecb.AddComponent(newEntity, new NewIslandTag());
+
+                    // Debug.Log($"[ECS] 岛屿生成: Pos={request.Position}, Airspace={request.AirspaceHeight}");
+                }
+                else if (request.Type == PlacementType.Building)
+                {
+                    ecb.AddComponent(newEntity, new BuildingTag());
+                    // 建筑可能不需要 New 标签，除非建筑也改变地形属性
+                }
+
+                // 5. 销毁请求实体
                 ecb.DestroyEntity(entity);
             }
         }

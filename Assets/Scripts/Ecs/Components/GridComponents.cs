@@ -56,10 +56,13 @@ namespace GameFramework.ECS.Components
     // 放置请求（作为一次性命令组件）
     public struct PlaceObjectRequest : IComponentData
     {
-        public int ObjectId;
-        public int3 Position;
-        public PlacementType Type;
-        public int3 Size; // 方便生成时直接使用
+        public int ObjectId;       // 配置ID (对应 Prefab)
+        public int3 Position;      // 锚点位置
+        public int3 Size;          // 尺寸 (长, 高, 宽)
+        public PlacementType Type; // 类型
+
+        // --- 新增岛屿特有参数 ---
+        public int AirspaceHeight; // 岛屿空域高度 (仅 Type == Island 时有效)
     }
 
     public enum PlacementType
