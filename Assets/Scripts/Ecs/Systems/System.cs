@@ -85,48 +85,6 @@ namespace GameFramework.ECS.Systems
             });
         }
     }
-
-    // ======================================================================================
-    // 2. 玩家输入处理系统 (Burst 编译，高性能)
-    // 职责：读取全局输入，并行处理所有玩家实体的状态。
-    // ======================================================================================
-    [BurstCompile]
-    [UpdateInGroup(typeof(GameplaySystemGroup))]
-    [UpdateBefore(typeof(MoveSystem))] // 确保在移动计算之前应用输入
-    public partial struct PlayerInputSystem : ISystem
-    {
-        [BurstCompile]
-        public void OnUpdate(ref SystemState state)
-        {
-            // 获取全局输入 (这是值拷贝，非常快)
-            var globalInput = SystemAPI.GetSingleton<GlobalInputComponent>();
-
-            // 使用 Job 方式并行处理所有带 PlayerTag 的实体
-            // 这在移动端上有极高的性能优势
-           /* new ApplyInputJob
-            {
-                Input = globalInput
-            }.ScheduleParallel();*/
-        }
-
-       /* [BurstCompile]
-        partial struct ApplyInputJob : IJobEntity
-        {
-            public GlobalInputComponent Input;
-
-            // 只需要读写 MoveComponent 和 InputComponent，并且只针对 PlayerTag
-            void Execute(ref MoveComponent move, ref InputComponent inputComponent, in PlayerTag tag)
-            {
-                // 1. 更新组件状态
-                inputComponent.Move = Input.Move;
-                inputComponent.Fire = Input.Fire;
-                inputComponent.Jump = Input.Jump;
-
-                // 2. 将输入转换为移动方向 (逻辑部分)
-                move.Direction = new float3(Input.Move.x, 0, Input.Move.y);
-            }
-        }*/
-    }
     // ======================================================================================
     // 4. 销毁系统 (优化版 - 使用 ECB 单例)
     // ======================================================================================

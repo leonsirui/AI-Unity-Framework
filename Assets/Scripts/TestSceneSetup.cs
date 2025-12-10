@@ -7,6 +7,7 @@ using Unity.Entities;
 using Unity.Mathematics;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
+using GameFramework.Gameplay;
 
 namespace GameFramework.Examples
 {
@@ -68,7 +69,7 @@ namespace GameFramework.Examples
 
         private void CreateCameraSystem()
         {
-            // 1. 确保主摄像机存在并带有 CinemachineBrain
+            // 1. 确保主摄像机存在 (保持原样...)
             var mainCamera = UnityEngine.Camera.main;
             if (mainCamera == null)
             {
@@ -77,35 +78,49 @@ namespace GameFramework.Examples
                 mainCamera = cameraGO.AddComponent<UnityEngine.Camera>();
                 cameraGO.AddComponent<AudioListener>();
             }
-
             if (mainCamera.GetComponent<CinemachineBrain>() == null)
             {
                 mainCamera.gameObject.AddComponent<CinemachineBrain>();
             }
 
-            // 2. 创建虚拟摄像机 (Virtual Camera)
+            // 2. 创建虚拟摄像机 (保持原样...)
             var vcamGO = new GameObject("CM vcam1");
             var vcam = vcamGO.AddComponent<CinemachineVirtualCamera>();
-
-            // 设置视角参数
             vcam.m_Lens.FieldOfView = 60f;
-            vcam.transform.rotation = Quaternion.Euler(45, 0, 0);
+            vcam.transform.rotation = Quaternion.Euler(45, 0, 0); // 45度俯视
 
-            // 设置跟随模式 (Transposer - 固定偏移)
             var transposer = vcam.AddCinemachineComponent<CinemachineTransposer>();
-            transposer.m_FollowOffset = new Vector3(0, 12, -10); // 上帝视角偏移
+            transposer.m_FollowOffset = new Vector3(0, 20, -20); // 调整高一点，视野更广
             transposer.m_BindingMode = CinemachineTransposer.BindingMode.LockToTargetWithWorldUp;
 
-            // 3. 确保 CameraController 存在 (它是 Singleton)
+            // 3. 确保 CameraController 存在 (保持原样...)
             if (CameraController.Instance == null)
             {
                 var controllerGO = new GameObject("CameraController");
                 controllerGO.AddComponent<CameraController>();
             }
-            //TODO var syncGO = new GameObject("PlayerCameraSync");
-            //syncGO.AddComponent<PlayerCameraSync>();
-            // 注意：此时我们还没有 Target 给摄像机，
-            // Target 会在 EntityVisualSyncManager 生成玩家模型后自动设置。
+
+            // ================== 修改部分开始 ==================
+
+            // 4. 创建自由摄像机焦点 (Strategy Camera Focus)
+            var focusGO = new GameObject("CameraFocus_Strategy");
+
+            // 设置初始位置 (比如地图中心)
+            focusGO.transform.position = new Vector3(0, 0, 0);
+
+            // 添加控制脚本
+            var strategyController = focusGO.AddComponent<StrategyCameraController>();
+
+            // 配置参数 (可选，也可以在 StrategyCameraController 脚本里设默认值)
+            strategyController.moveSpeed = 30f;
+            strategyController.minBounds = new Vector2(-100, -100);
+            strategyController.maxBounds = new Vector2(100, 100);
+
+            // 5. 设置跟随
+            // 让 CameraController 通知 Cinemachine 盯着这个焦点看
+            CameraController.Instance.SetFollow(focusGO.transform);
+
+            // ================== 修改部分结束 ==================
         }
 
         // 辅助：获取内置资源（仅作兜底，实际应使用 AssetBundle 或 Addressables 加载的资源）
