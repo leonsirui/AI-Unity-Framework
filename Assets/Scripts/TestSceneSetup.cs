@@ -91,7 +91,7 @@ namespace GameFramework.Examples
 
             var transposer = vcam.AddCinemachineComponent<CinemachineTransposer>();
             transposer.m_FollowOffset = new Vector3(0, 20, -20); // 调整高一点，视野更广
-            transposer.m_BindingMode = CinemachineTransposer.BindingMode.LockToTargetWithWorldUp;
+            transposer.m_BindingMode = CinemachineTransposer.BindingMode.LockToTarget;
 
             // 3. 确保 CameraController 存在 (保持原样...)
             if (CameraController.Instance == null)
@@ -113,7 +113,7 @@ namespace GameFramework.Examples
 
             // 配置参数 (可选，也可以在 StrategyCameraController 脚本里设默认值)
             strategyController.moveSpeed = 30f;
-            strategyController.minBounds = new Vector2(-100, -100);
+            strategyController.minBounds = new Vector2(0, 0);
             strategyController.maxBounds = new Vector2(100, 100);
 
             // 5. 设置跟随
