@@ -35,7 +35,7 @@ namespace GameFramework.Examples
             // 通知 CameraController 跟随这个空物体
             if (CameraController.Instance != null)
             {
-                CameraController.Instance.SetFollow(_targetTransform);
+                //CameraController.Instance.SetFollow(_targetTransform);
             }
         }
 

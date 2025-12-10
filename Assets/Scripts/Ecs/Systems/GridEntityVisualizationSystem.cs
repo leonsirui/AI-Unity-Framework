@@ -79,41 +79,41 @@ namespace GameFramework.ECS.Systems
 
         private void ShowGrid(GridConfigComponent config)
         {
-            // 防止重复生成
             if (!_spawnedGridEntities.IsEmpty) return;
 
             Debug.Log($"[GridSystem] 开始生成网格实体... 尺寸: {config.Width}x{config.Length}");
 
             int width = config.Width;
             int length = config.Length;
-            float cellSize = config.CellSize;
+            float cellSize = config.CellSize; // 这里获取到的是 2.0f
 
-            // 预先分配内存
             _spawnedGridEntities.Capacity = width * length;
 
             for (int x = 0; x < width; x++)
             {
                 for (int z = 0; z < length; z++)
                 {
-                    // 计算世界坐标 (格子中心)
+                    // 1. 位置计算：使用 cellSize (2.0) 确保每个格子中心点相距 2 米
+                    //    (x * 2.0 + 1.0) -> 1, 3, 5... 完美衔接
                     float3 pos = new float3(
                         x * cellSize + cellSize * 0.5f,
-                        0.02f, // 稍微抬高一点点，防止与地面 Z-fighting
+                        0.02f,
                         z * cellSize + cellSize * 0.5f
                     );
 
-                    // 使用 EntityFactory 统一接口生成实体
-                    // 假设网格预制体是 1x1 大小的，我们需要缩放到 CellSize
+                    // 2. 生成实体：
+                    //    注意最后一个参数 scale。
+                    //    之前是传入 cellSize (2.0) 导致图片被放大了两倍。
+                    //    现在改为 1.0f，保持图片原始大小（即原本就是2个单位大）。
                     Entity cellEntity = _entityFactory.SpawnEntity(
                         GRID_CELL_CONFIG_ID,
                         pos,
-                        quaternion.RotateX(math.radians(90)), // 如果用的是 Quad，通常需要旋转平铺
-                        cellSize
+                        quaternion.RotateX(math.radians(90)),
+                        1.0f // <--- 【关键修改】强制缩放为 1
                     );
 
                     if (cellEntity != Entity.Null)
                     {
-                        // 记录下来以便稍后销毁
                         _spawnedGridEntities.Add(cellEntity);
                     }
                 }

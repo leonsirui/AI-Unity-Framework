@@ -21,8 +21,8 @@ namespace GameFramework.ECS.Systems
             // 初始化网格配置单例 (这里硬编码，实际可从 ConfigAssets 读取)
             EntityManager.CreateSingleton(new GridConfigComponent
             {
-                Width = 100,
-                Length = 100,
+                Width = 50,
+                Length = 50,
                 Height = 15,
                 CellSize = 2.0f
             });

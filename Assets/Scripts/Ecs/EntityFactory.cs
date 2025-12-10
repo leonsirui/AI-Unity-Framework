@@ -33,7 +33,7 @@ namespace GameFramework.ECS
         #region 核心资源加载与原型构建
 
         /// <summary>
-        /// 【新增公开接口】预加载实体原型
+        /// 【公开接口】预加载实体原型
         /// </summary>
         public async UniTask<Entity> LoadEntityArchetypeAsync(int configId, string resourcePath)
         {
@@ -41,7 +41,7 @@ namespace GameFramework.ECS
         }
 
         /// <summary>
-        /// 【新增公开接口】同步生成实体（必须确保资源已通过 LoadEntityArchetypeAsync 加载）
+        /// 【公开接口】同步生成实体（必须确保资源已通过 LoadEntityArchetypeAsync 加载）
         /// </summary>
         public Entity SpawnEntity(int configId, float3 position, quaternion rotation, float scale = 1f)
         {
@@ -68,7 +68,6 @@ namespace GameFramework.ECS
             return newEntity;
         }
 
-        // ... (保留你原有的 GetOrCreateEntityPrefabAsync 私有方法不变) ...
         private async UniTask<Entity> GetOrCreateEntityPrefabAsync(int configId, string resourcePath)
         {
             // 1. 检查缓存
@@ -82,14 +81,35 @@ namespace GameFramework.ECS
             GameObject assetGo = await ResourceManager.Instance.LoadAssetAsync<GameObject>(resourcePath);
             if (assetGo == null) return Entity.Null;
 
-            // 3. 提取渲染数据
+            Mesh mesh = null;
+            Material material = null;
+
+            // 3. 尝试提取渲染数据 (优先 Mesh，其次 Sprite)
             var meshFilter = assetGo.GetComponentInChildren<MeshFilter>();
             var meshRenderer = assetGo.GetComponentInChildren<MeshRenderer>();
 
-            // 如果是空物体（比如只有碰撞体），处理一下
-            if (meshFilter == null || meshRenderer == null)
+            if (meshFilter != null && meshRenderer != null)
             {
-                Debug.LogWarning($"[EntityFactory] 资源没有 Mesh，创建纯数据实体: {resourcePath}");
+                // 情况 A: 标准 3D 模型
+                mesh = meshFilter.sharedMesh;
+                material = meshRenderer.sharedMaterial;
+            }
+            else
+            {
+                // 情况 B: 2D Sprite
+                var spriteRenderer = assetGo.GetComponentInChildren<SpriteRenderer>();
+                if (spriteRenderer != null && spriteRenderer.sprite != null)
+                {
+                    // 将 Sprite 动态转换为 Mesh 以便 ECS 渲染
+                    mesh = CreateMeshFromSprite(spriteRenderer.sprite);
+                    material = spriteRenderer.sharedMaterial;
+                }
+            }
+
+            // 如果两者都没有，创建一个纯数据实体（例如不可见的逻辑对象）
+            if (mesh == null || material == null)
+            {
+                Debug.LogWarning($"[EntityFactory] 资源没有 Mesh 或 Sprite，创建纯数据实体: {resourcePath}");
                 prefabEntity = _entityManager.CreateEntity();
                 _entityManager.AddComponentData(prefabEntity, new LocalTransform { Scale = 1f, Rotation = quaternion.identity });
                 _entityManager.AddComponent<Prefab>(prefabEntity);
@@ -97,16 +117,16 @@ namespace GameFramework.ECS
                 return prefabEntity;
             }
 
-            Mesh mesh = meshFilter.sharedMesh;
-            Material material = meshRenderer.sharedMaterial;
-
             // 4. 创建 ECS 实体
             prefabEntity = _entityManager.CreateEntity();
 
             // 5. 添加渲染组件
             var renderMeshArray = new RenderMeshArray(new[] { material }, new[] { mesh });
+
+            // 配置渲染描述：网格通常不需要投射阴影，但需要接收阴影
+            // 如果是 Sprite，可能需要根据 2D/3D 需求调整 shadowCastingMode
             var renderMeshDescription = new RenderMeshDescription(
-                shadowCastingMode: ShadowCastingMode.Off, // 网格通常不需要投射阴影
+                shadowCastingMode: ShadowCastingMode.Off,
                 receiveShadows: true
             );
 
@@ -122,10 +142,44 @@ namespace GameFramework.ECS
             _entityManager.AddComponentData(prefabEntity, new LocalTransform { Scale = 1f, Rotation = quaternion.identity });
             _entityManager.AddComponent<Prefab>(prefabEntity); // 标记为Prefab
 
-            // 8. 缓存
+            // 7. 缓存
             _entityPrefabCache[configId] = prefabEntity;
 
             return prefabEntity;
+        }
+
+        /// <summary>
+        /// 辅助方法：将 Unity Sprite 数据转换为 Mesh
+        /// </summary>
+        private Mesh CreateMeshFromSprite(Sprite sprite)
+        {
+            var mesh = new Mesh();
+            mesh.name = sprite.name + "_GeneratedMesh";
+
+            // 获取 Sprite 的顶点数据 (Vector2 -> Vector3)
+            var spriteVertices = sprite.vertices;
+            var vertices = new Vector3[spriteVertices.Length];
+            for (int i = 0; i < spriteVertices.Length; i++)
+            {
+                vertices[i] = (Vector3)spriteVertices[i];
+            }
+
+            // 获取三角形索引 (ushort -> int)
+            var spriteTriangles = sprite.triangles;
+            var triangles = new int[spriteTriangles.Length];
+            for (int i = 0; i < spriteTriangles.Length; i++)
+            {
+                triangles[i] = (int)spriteTriangles[i];
+            }
+
+            mesh.vertices = vertices;
+            mesh.uv = sprite.uv; // 直接使用 Sprite 图集中的 UV
+            mesh.triangles = triangles;
+
+            mesh.RecalculateNormals();
+            mesh.RecalculateBounds();
+
+            return mesh;
         }
 
         #endregion
