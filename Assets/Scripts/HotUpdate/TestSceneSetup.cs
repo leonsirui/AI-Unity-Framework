@@ -1,6 +1,6 @@
 // 确保项目引入了 Cinemachine，否则注释掉相关行
 using Cinemachine;
-using GameFramework.Camera;
+using GameFramework.CameraSystem;
 using GameFramework.ECS;
 using GameFramework.ECS.Components;
 using Unity.Entities;

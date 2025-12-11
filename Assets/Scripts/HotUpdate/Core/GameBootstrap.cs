@@ -37,6 +37,7 @@ namespace GameFramework.Core
 
             // 1. 基础系统初始化
             ConfigManager.Instance.Initialize(gameConfig);
+            await ConfigManager.Instance.LoadLubanTablesAsync(); 
             await ResourceManager.Instance.InitializeAsync();
             InputManager.Instance.Initialize();
             SaveManager.Instance.Initialize();

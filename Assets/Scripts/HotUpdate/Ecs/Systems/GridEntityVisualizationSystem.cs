@@ -3,8 +3,9 @@ using GameFramework.ECS.Components;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Physics;
 using Unity.Transforms;
-using UnityEngine; // 仅用于 Debug
+using UnityEngine;
 
 namespace GameFramework.ECS.Systems
 {
@@ -12,33 +13,27 @@ namespace GameFramework.ECS.Systems
     public partial class GridEntityVisualizationSystem : SystemBase
     {
         private EntityFactory _entityFactory;
-        private NativeList<Entity> _spawnedGridEntities; // 记录所有生成的网格实体
+        private NativeList<Entity> _spawnedGridEntities;
 
         private bool _wasActive;
         private bool _isResourceLoaded;
 
-        // 假设我们在 Luban 配置表里定义了一个 ID 为 9001 的 GridCell 资源
-        // 它的路径应该指向一个简单的 Quad 模型，材质球用半透明线条或颜色
         private const int GRID_CELL_CONFIG_ID = 9001;
-        private const string GRID_CELL_PATH = "Assets/Resources_moved/GridCell.prefab"; // 替换为你实际的资源路径
+        private const string GRID_CELL_PATH = "Assets/Resources_moved/GridCell.prefab";
 
         protected override void OnCreate()
         {
             RequireForUpdate<GridConfigComponent>();
             RequireForUpdate<PlacementStateComponent>();
 
-            // 初始化 Factory
             _entityFactory = new EntityFactory(EntityManager);
             _spawnedGridEntities = new NativeList<Entity>(Allocator.Persistent);
 
-            // 预加载网格资源 (Fire and forget)
             LoadGridResource().Forget();
         }
 
         private async UniTaskVoid LoadGridResource()
         {
-            // 这里调用 EntityFactory 的加载逻辑
-            // 实际项目中，Path 应该从 ConfigManager 获取
             var entity = await _entityFactory.LoadEntityArchetypeAsync(GRID_CELL_CONFIG_ID, GRID_CELL_PATH);
 
             if (entity != Entity.Null)
@@ -63,12 +58,10 @@ namespace GameFramework.ECS.Systems
             var state = SystemAPI.GetComponent<PlacementStateComponent>(stateEntity);
             var config = SystemAPI.GetSingleton<GridConfigComponent>();
 
-            // 状态从未激活 -> 激活：生成网格
             if (state.IsActive && !_wasActive)
             {
                 ShowGrid(config);
             }
-            // 状态从激活 -> 未激活：销毁网格
             else if (!state.IsActive && _wasActive)
             {
                 ClearGrid();
@@ -85,35 +78,53 @@ namespace GameFramework.ECS.Systems
 
             int width = config.Width;
             int length = config.Length;
-            float cellSize = config.CellSize; // 这里获取到的是 2.0f
+            float cellSize = config.CellSize;
 
             _spawnedGridEntities.Capacity = width * length;
+
+            // [新增] 创建物理碰撞体资源 (所有格子共用一份 BlobAsset)
+            // 创建一个与格子大小匹配的 Box 几何体
+            var boxGeometry = new BoxGeometry
+            {
+                Center = float3.zero,
+                Orientation = quaternion.identity,
+                Size = new float3(cellSize, 0.1f, cellSize), // 厚度设为 0.1，方便射线检测
+                BevelRadius = 0f
+            };
+            // 创建 BlobAsset (注意：Default 过滤器允许所有层级检测)
 
             for (int x = 0; x < width; x++)
             {
                 for (int z = 0; z < length; z++)
                 {
-                    // 1. 位置计算：使用 cellSize (2.0) 确保每个格子中心点相距 2 米
-                    //    (x * 2.0 + 1.0) -> 1, 3, 5... 完美衔接
+                    // 计算世界坐标
                     float3 pos = new float3(
                         x * cellSize + cellSize * 0.5f,
-                        0.02f,
+                        0.02f, // 稍微抬高一点点，防止与地面穿插 (Z-fighting)
                         z * cellSize + cellSize * 0.5f
                     );
 
-                    // 2. 生成实体：
-                    //    注意最后一个参数 scale。
-                    //    之前是传入 cellSize (2.0) 导致图片被放大了两倍。
-                    //    现在改为 1.0f，保持图片原始大小（即原本就是2个单位大）。
-                    Entity cellEntity = _entityFactory.SpawnEntity(
+                    // 生成可视化实体
+                    Entity cellEntity = _entityFactory.SpawnColliderEntity(
                         GRID_CELL_CONFIG_ID,
                         pos,
                         quaternion.RotateX(math.radians(90)),
-                        1.0f // <--- 【关键修改】强制缩放为 1
+                        boxGeometry,
+                        1.0f
                     );
 
                     if (cellEntity != Entity.Null)
                     {
+                        // [关键步骤] 挂载逻辑坐标组件
+                        // 这样鼠标射线打到这个实体时，就能直接读取它是哪个 (x, z) 格子
+                        EntityManager.AddComponentData(cellEntity, new GridPositionComponent { Value = new int3(x, 0, z) });
+
+                        // [关键步骤] 挂载物理碰撞体
+                        // 这样 Unity.Physics 的射线才能检测到它
+
+                        // [可选] 挂载标签组件，方便后续进行特定过滤
+                        EntityManager.AddComponent<GridCellTag>(cellEntity);
+
                         _spawnedGridEntities.Add(cellEntity);
                     }
                 }
@@ -124,7 +135,6 @@ namespace GameFramework.ECS.Systems
         {
             if (_spawnedGridEntities.IsEmpty) return;
 
-            // 批量销毁实体，这是 ECS 的优势，非常快
             EntityManager.DestroyEntity(_spawnedGridEntities.AsArray());
             _spawnedGridEntities.Clear();
 

@@ -3,37 +3,26 @@ using Unity.Mathematics;
 
 namespace GameFramework.ECS.Components
 {
-    // ==========================================
-    // 基础网格属性
-    // ==========================================
-
-    // 网格坐标组件（逻辑坐标）
+    // [保留] 基础网格属性
     public struct GridPositionComponent : IComponentData
     {
-        public int3 Value; // x, y, z
+        public int3 Value; // 格子的逻辑坐标 (x, y, z)
     }
 
-    // 物体尺寸组件（用于计算占用格子）
     public struct ObjectSizeComponent : IComponentData
     {
-        public int3 Size; // 长, 高, 宽
+        public int3 Size;
     }
 
-    // ==========================================
-    // 标签组件 (Tags)
-    // ==========================================
-
+    // [保留] 标签组件
     public struct BuildingTag : IComponentData { }
     public struct IslandTag : IComponentData { }
+    public struct PreviewTag : IComponentData { } // 预览虚影标签
 
-    // 预览标签：标记该实体仅为放置时的预览（半透明/不阻挡）
-    public struct PreviewTag : IComponentData { }
+    // [新增] 网格层标识 (可选，用于物理过滤，防止射线打到别的东西)
+    public struct GridCellTag : IComponentData { }
 
-    // ==========================================
-    // 单例配置与状态 (Singletons)
-    // ==========================================
-
-    // 网格地图配置
+    // [保留] 地图配置
     public struct GridConfigComponent : IComponentData
     {
         public int Width;
@@ -41,20 +30,22 @@ namespace GameFramework.ECS.Components
         public int Height;
         public float CellSize;
     }
-    // 放置系统状态
+
+    // [保留] 放置状态
     public struct PlacementStateComponent : IComponentData
     {
         public bool IsActive;
         public int CurrentObjectId;
         public PlacementType Type;
-        public int3 CurrentGridPos;
-        public bool IsPositionValid;
 
-        // [新增] 旋转角度 (0, 1, 2, 3 对应 0, 90, 180, 270)
+        // 这里的坐标将直接从射线命中的 Entity 上读取
+        public int3 CurrentGridPos;
+
+        public bool IsPositionValid;
         public int RotationIndex;
     }
 
-    // 放置请求
+    // [保留] 放置请求
     public struct PlaceObjectRequest : IComponentData
     {
         public int ObjectId;
@@ -62,8 +53,6 @@ namespace GameFramework.ECS.Components
         public int3 Size;
         public PlacementType Type;
         public int AirspaceHeight;
-
-        // [新增] 最终的旋转四元数
         public quaternion Rotation;
     }
 
@@ -74,4 +63,6 @@ namespace GameFramework.ECS.Components
         Building,
         Bridge
     }
+
+    // [已移除] GlobalInputComponent 及其相关逻辑
 }

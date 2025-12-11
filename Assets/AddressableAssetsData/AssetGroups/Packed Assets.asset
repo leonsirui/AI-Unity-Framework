@@ -18,7 +18,7 @@ MonoBehaviour:
   m_GUID: 33312e7ee8c7d3a4a9f77a10df97c1a7
   m_SerializeEntries:
   - m_GUID: 056f200c3a24ac84e90446da712a13d0
-    m_Address: Assets/Prefabs/IslandModel/island_100001.prefab
+    m_Address: island_100001
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

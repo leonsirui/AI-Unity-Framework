@@ -1,7 +1,7 @@
 using UnityEngine;
 using Cinemachine;
 
-namespace GameFramework.Camera
+namespace GameFramework.CameraSystem
 {
     public class CameraController : Singleton<CameraController>
     {

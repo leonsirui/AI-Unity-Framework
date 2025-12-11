@@ -1,12 +1,17 @@
-using cfg; // 引入 Luban 命名空间
+using cfg;
 using Cysharp.Threading.Tasks;
 using GameFramework.Core;
 using GameFramework.ECS.Components;
 using GameFramework.Managers;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Physics; // [新增] 引入物理命名空间
+using Unity.Physics.Systems; // [新增] 用于获取 PhysicsWorld
 using Unity.Transforms;
 using UnityEngine;
+
+// 解决冲突：使用 Unity 物理的 RaycastHit
+using RaycastHit = Unity.Physics.RaycastHit;
 
 namespace GameFramework.ECS.Systems
 {
@@ -14,21 +19,22 @@ namespace GameFramework.ECS.Systems
     public partial class PlacementSystem : SystemBase
     {
         private GridOccupancySystem _gridSystem;
+        private Camera _mainCamera;
 
-        // --- 混合架构：虚影预览相关 ---
+        // --- 虚影预览相关 ---
         private GameObject _previewObject;
-        private Material _validMat;
-        private Material _invalidMat;
+        private UnityEngine.Material _validMat;
+        private UnityEngine.Material _invalidMat;
         private int _lastLoadedObjectId = -1;
         private bool _isResourceLoading = false;
 
         protected override void OnCreate()
         {
             RequireForUpdate<GridConfigComponent>();
-            RequireForUpdate<GlobalInputComponent>();
+            // [移除] RequireForUpdate<GlobalInputComponent>(); 
             RequireForUpdate<PlacementStateComponent>();
+            RequireForUpdate<PhysicsWorldSingleton>(); // [新增] 需要物理世界单例
 
-            // 确保单例存在
             if (!SystemAPI.HasSingleton<PlacementStateComponent>())
             {
                 EntityManager.CreateSingleton<PlacementStateComponent>();
@@ -39,36 +45,38 @@ namespace GameFramework.ECS.Systems
 
         private void LoadMaterials()
         {
-            // 请确保 Resources/Prefabs 目录下有这两个材质
-            _validMat = Resources.Load<Material>("Prefabs/Green");
-            _invalidMat = Resources.Load<Material>("Prefabs/Red");
+            _validMat = Resources.Load<UnityEngine.Material>("Prefabs/Green");
+            _invalidMat = Resources.Load<UnityEngine.Material>("Prefabs/Red");
         }
 
         protected override void OnStartRunning()
         {
             _gridSystem = World.GetExistingSystemManaged<GridOccupancySystem>();
+            _mainCamera = Camera.main; // 获取主摄像机
         }
 
         protected override void OnUpdate()
         {
-            var input = SystemAPI.GetSingleton<GlobalInputComponent>();
             var gridConfig = SystemAPI.GetSingleton<GridConfigComponent>();
+            var physicsWorldSingleton = SystemAPI.GetSingleton<PhysicsWorldSingleton>();
+            var collisionWorld = physicsWorldSingleton.CollisionWorld;
 
             var stateRef = SystemAPI.GetSingletonRW<PlacementStateComponent>();
             ref var state = ref stateRef.ValueRW;
 
             // --- 0. 调试开关 (按 B 键) ---
-            if (UnityEngine.Input.GetKeyDown(KeyCode.B))
+            if (Input.GetKeyDown(KeyCode.B))
             {
                 state.IsActive = !state.IsActive;
                 state.Type = PlacementType.Island;
-                state.CurrentObjectId = 100001; // 测试ID
+                state.CurrentObjectId = 100001;
                 state.RotationIndex = 0;
                 Debug.Log($"放置模式: {state.IsActive}");
             }
 
             // --- 1. 退出/取消处理 ---
-            if (!state.IsActive || input.IsCancelPlace)
+            // 直接读取 Unity Input
+            if (!state.IsActive || Input.GetKeyDown(KeyCode.Escape))
             {
                 if (state.IsActive) state.IsActive = false;
                 CleanupPreview();
@@ -76,83 +84,113 @@ namespace GameFramework.ECS.Systems
             }
 
             // --- 2. 资源加载与虚影管理 ---
-            // 检查是否需要重新加载虚影 (ID变化 或 虚影为空)
             if ((_previewObject == null || _lastLoadedObjectId != state.CurrentObjectId) && !_isResourceLoading)
             {
                 CreatePreviewGameObject(state.CurrentObjectId, state.Type).Forget();
-                return; // 加载中，跳过本帧
+                return;
             }
 
             if (_previewObject == null) return;
 
             // --- 3. 旋转逻辑 (按 R 键) ---
-            if (UnityEngine.Input.GetKeyDown(KeyCode.R))
+            if (Input.GetKeyDown(KeyCode.R))
             {
                 state.RotationIndex = (state.RotationIndex + 1) % 4;
             }
 
-            // --- 4. 尺寸与坐标计算 ---
-            // 获取原始尺寸
-            int3 baseSize = GetObjectSizeFromConfig(state.CurrentObjectId, state.Type);
+            // --- 4. [核心修改] 射线检测获取网格位置 ---
+            bool hasHoverGrid = false;
 
-            // 根据旋转交换长宽 (90度和270度时交换 X/Z)
-            int3 rotatedSize = baseSize;
-            if (state.RotationIndex == 1 || state.RotationIndex == 3)
+            // 构建射线
+            UnityEngine.Ray unityRay = _mainCamera.ScreenPointToRay(Input.mousePosition);
+            RaycastInput raycastInput = new RaycastInput
             {
-                rotatedSize = new int3(baseSize.z, baseSize.y, baseSize.x);
+                Start = unityRay.origin,
+                End = unityRay.origin + unityRay.direction * 1000f, // 射线长度
+                Filter = CollisionFilter.Default // 这里的 Filter 可以设置只检测 GridCell 层
+            };
+
+            if (collisionWorld.CastRay(raycastInput, out RaycastHit hit))
+            {
+                Entity hitEntity = hit.Entity;
+
+                // [新增] 临时测试日志：只要打中东西就打印 Entity 的索引
+                // Debug.Log($"射线击中实体: Index={hitEntity.Index}, 距离={hit.Fraction}");
+
+                if (EntityManager.HasComponent<GridPositionComponent>(hitEntity))
+                {
+                    int3 hitGridPos = EntityManager.GetComponentData<GridPositionComponent>(hitEntity).Value;
+
+                    // [新增] 确认日志：打印读出的网格逻辑坐标
+                    Debug.Log($">> 击中网格: ({hitGridPos.x}, {hitGridPos.z})");
+
+                    state.CurrentGridPos = hitGridPos;
+                    hasHoverGrid = true;
+                }
             }
 
-            // --- 5. 位置更新与合法性检测 ---
-            if (input.HasHoverTarget)
+            // --- 5. 尺寸计算与预览更新 ---
+            if (hasHoverGrid)
             {
-                state.CurrentGridPos = input.HoverGridPosition;
+                // 获取原始尺寸
+                int3 baseSize = GetObjectSizeFromConfig(state.CurrentObjectId, state.Type);
+
+                // 旋转尺寸
+                int3 rotatedSize = baseSize;
+                if (state.RotationIndex == 1 || state.RotationIndex == 3)
+                {
+                    rotatedSize = new int3(baseSize.z, baseSize.y, baseSize.x);
+                }
 
                 // A. 合法性检测
                 state.IsPositionValid = _gridSystem.IsAreaAvailable(state.CurrentGridPos, rotatedSize);
 
-                // B. 计算世界坐标 (关键修改：应用中心偏移)
-                // 公式：网格角点坐标 + (物体尺寸 * 格子大小 * 0.5)
+                // B. 计算世界坐标 (含中心偏移)
                 float3 worldPos = new float3(
                     state.CurrentGridPos.x * gridConfig.CellSize + (rotatedSize.x * gridConfig.CellSize * 0.5f),
-                    state.CurrentGridPos.y * gridConfig.CellSize, // 高度通常不需要偏移，除非中心点在物体几何中心
+                    state.CurrentGridPos.y * gridConfig.CellSize,
                     state.CurrentGridPos.z * gridConfig.CellSize + (rotatedSize.z * gridConfig.CellSize * 0.5f)
                 );
 
-                // C. 应用位置和旋转到虚影
+                // C. 应用位置和旋转
                 _previewObject.transform.position = worldPos;
                 _previewObject.transform.rotation = quaternion.RotateY(math.radians(90 * state.RotationIndex));
+                _previewObject.SetActive(true);
 
-                // D. 更新材质反馈
+                // D. 更新材质
                 UpdatePreviewMaterial(state.IsPositionValid);
-            }
 
-            // --- 6. 确认放置 ---
-            if (input.IsConfirmPlace && state.IsPositionValid)
-            {
-                var requestEntity = EntityManager.CreateEntity();
-                EntityManager.AddComponentData(requestEntity, new PlaceObjectRequest
+                // --- 6. 确认放置 (鼠标左键) ---
+                if (Input.GetMouseButtonDown(0) && state.IsPositionValid)
                 {
-                    ObjectId = state.CurrentObjectId,
-                    Position = state.CurrentGridPos,
-                    Type = state.Type,
-                    Size = rotatedSize, // 存入旋转后的实际占用尺寸
-                    Rotation = quaternion.RotateY(math.radians(90 * state.RotationIndex)), // 存入旋转
-                    AirspaceHeight = 5 // 示例值，应从 Config 读取
-                });
+                    var requestEntity = EntityManager.CreateEntity();
+                    EntityManager.AddComponentData(requestEntity, new PlaceObjectRequest
+                    {
+                        ObjectId = state.CurrentObjectId,
+                        Position = state.CurrentGridPos,
+                        Type = state.Type,
+                        Size = rotatedSize,
+                        Rotation = quaternion.RotateY(math.radians(90 * state.RotationIndex)),
+                        AirspaceHeight = 5
+                    });
 
-                Debug.Log($"[Placement] 生成请求: Pos={state.CurrentGridPos}");
+                    Debug.Log($"[Placement] 生成请求: Pos={state.CurrentGridPos}");
+                }
+            }
+            else
+            {
+                // 如果鼠标没有指着网格，隐藏预览
+                if (_previewObject.activeSelf) _previewObject.SetActive(false);
             }
         }
 
-        // --- 辅助方法 ---
-
+        // --- 辅助方法保持不变 ---
         private async UniTaskVoid CreatePreviewGameObject(int configId, PlacementType type)
         {
             _isResourceLoading = true;
             _lastLoadedObjectId = configId;
             string resourcePath = null;
 
-            // 从 Luban 表获取路径
             if (ConfigManager.Instance.Tables != null)
             {
                 switch (type)
@@ -168,7 +206,7 @@ namespace GameFramework.ECS.Systems
                 }
             }
 
-            // 兜底路径
+            Debug.Log(resourcePath);
             if (string.IsNullOrEmpty(resourcePath)) resourcePath = "Assets/Resources_moved/GridCell.prefab";
 
             var prefab = await ResourceManager.Instance.LoadAssetAsync<GameObject>(resourcePath);
@@ -177,12 +215,9 @@ namespace GameFramework.ECS.Systems
             {
                 if (_previewObject != null) Object.Destroy(_previewObject);
                 _previewObject = Object.Instantiate(prefab);
-
-                // 禁用碰撞体
-                foreach (var c in _previewObject.GetComponentsInChildren<Collider>()) c.enabled = false;
+                foreach (var c in _previewObject.GetComponentsInChildren<UnityEngine.Collider>()) c.enabled = false;
                 UpdatePreviewMaterial(true);
             }
-
             _isResourceLoading = false;
         }
 
@@ -190,11 +225,10 @@ namespace GameFramework.ECS.Systems
         {
             if (_previewObject == null || _validMat == null || _invalidMat == null) return;
             var renderers = _previewObject.GetComponentsInChildren<Renderer>();
-            Material targetMat = isValid ? _validMat : _invalidMat;
+            UnityEngine.Material targetMat = isValid ? _validMat : _invalidMat;
             foreach (var r in renderers)
             {
-                // 简单替换所有材质
-                var mats = new Material[r.sharedMaterials.Length];
+                var mats = new UnityEngine.Material[r.sharedMaterials.Length];
                 for (int i = 0; i < mats.Length; i++) mats[i] = targetMat;
                 r.sharedMaterials = mats;
             }
@@ -213,13 +247,10 @@ namespace GameFramework.ECS.Systems
         private int3 GetObjectSizeFromConfig(int objectId, PlacementType type)
         {
             if (ConfigManager.Instance.Tables == null) return new int3(1, 1, 1);
-
-            // 根据你的实际 Luban 结构修改
             switch (type)
             {
                 case PlacementType.Building:
                     var bCfg = ConfigManager.Instance.Tables.BuildingCfg.Get(objectId);
-                    // 假设配表里是 Size (Vector3)
                     if (bCfg != null) return new int3((int)bCfg.Length, 1, (int)bCfg.Width);
                     break;
                 case PlacementType.Island:
@@ -228,62 +259,6 @@ namespace GameFramework.ECS.Systems
                     break;
             }
             return new int3(1, 1, 1);
-        }
-    }
-
-    // ==========================================
-    // 实体生成系统 (消费请求)
-    // ==========================================
-    [UpdateInGroup(typeof(SimulationSystemGroup))]
-    public partial struct ObjectSpawnSystem : ISystem
-    {
-        public void OnUpdate(ref SystemState state)
-        {
-            var ecbSingleton = SystemAPI.GetSingleton<EndSimulationEntityCommandBufferSystem.Singleton>();
-            var ecb = ecbSingleton.CreateCommandBuffer(state.WorldUnmanaged);
-
-            if (!SystemAPI.TryGetSingleton(out GridConfigComponent gridConfig)) return;
-
-            foreach (var (req, entity) in SystemAPI.Query<RefRO<PlaceObjectRequest>>().WithEntityAccess())
-            {
-                var request = req.ValueRO;
-
-                // 【关键同步】这里也必须应用同样的中心偏移公式
-                float3 worldPos = new float3(
-                    request.Position.x * gridConfig.CellSize + (request.Size.x * gridConfig.CellSize * 0.5f),
-                    request.Position.y * gridConfig.CellSize,
-                    request.Position.z * gridConfig.CellSize + (request.Size.z * gridConfig.CellSize * 0.5f)
-                );
-
-                // 创建实体
-                // 注意：这里最好调用 EntityFactory 来生成带 Mesh 的实体
-                // 下面是纯 ECS 方式的演示，你需要确保创建出来的 Entity 有 RenderMesh
-                var newEntity = ecb.CreateEntity();
-
-                ecb.AddComponent(newEntity, new LocalTransform
-                {
-                    Position = worldPos,
-                    Rotation = request.Rotation,
-                    Scale = 1f
-                });
-                ecb.AddComponent(newEntity, new GridPositionComponent { Value = request.Position });
-                ecb.AddComponent(newEntity, new ObjectSizeComponent { Size = request.Size });
-
-                if (request.Type == PlacementType.Island)
-                {
-                    ecb.AddComponent(newEntity, new IslandTag());
-                    ecb.AddComponent(newEntity, new IslandComponent { AirspaceHeight = request.AirspaceHeight });
-                    ecb.AddComponent(newEntity, new NewIslandTag());
-                }
-                else if (request.Type == PlacementType.Building)
-                {
-                    ecb.AddComponent(newEntity, new BuildingTag());
-                    // 如果有建筑注册系统，这里应添加 NewBuildingTag
-                }
-
-                // 销毁请求
-                ecb.DestroyEntity(entity);
-            }
         }
     }
 }

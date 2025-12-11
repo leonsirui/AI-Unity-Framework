@@ -1,5 +1,5 @@
 using UnityEngine;
-using GameFramework.Camera;
+using GameFramework.CameraSystem;
 
 namespace GameFramework.Gameplay
 {

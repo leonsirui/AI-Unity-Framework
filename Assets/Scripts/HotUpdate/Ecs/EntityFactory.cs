@@ -1,9 +1,6 @@
 using Cysharp.Threading.Tasks;
-using GameFramework.Core;
-using GameFramework.ECS.Components;
 using GameFramework.Managers;
 using System.Collections.Generic;
-using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using Unity.Rendering;
@@ -67,6 +64,35 @@ namespace GameFramework.ECS
 
             return newEntity;
         }
+
+
+        public Entity SpawnColliderEntity(int configId, float3 position, quaternion rotation,Unity.Physics.BoxGeometry ccb, float scale = 1f)
+        {
+            if (!_entityPrefabCache.TryGetValue(configId, out Entity prefabEntity))
+            {
+                Debug.LogError($"[EntityFactory] 原型未加载，请先调用 LoadEntityArchetypeAsync. ConfigID: {configId}");
+                return Entity.Null;
+            }
+            BlobAssetReference<Unity.Physics.Collider> colliderBlob = Unity.Physics.BoxCollider.Create(ccb, Unity.Physics.CollisionFilter.Default);
+            // ECS 实例化非常快
+            Entity newEntity = _entityManager.Instantiate(prefabEntity);
+
+            // 设置位置信息
+            _entityManager.SetComponentData(newEntity, new LocalTransform
+            {
+                Position = position,
+                Rotation = rotation,
+                Scale = scale
+            });
+
+            _entityManager.AddComponentData(newEntity, new Unity.Physics.PhysicsCollider { Value = colliderBlob });
+
+            // 移除 Prefab 标签，这样它就会被 Systems 处理并渲染
+            _entityManager.RemoveComponent<Prefab>(newEntity);
+
+            return newEntity;
+        }
+
 
         private async UniTask<Entity> GetOrCreateEntityPrefabAsync(int configId, string resourcePath)
         {
