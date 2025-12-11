@@ -15,7 +15,7 @@ MonoBehaviour:
   m_DefaultGroup: 33312e7ee8c7d3a4a9f77a10df97c1a7
   m_currentHash:
     serializedVersion: 2
-    Hash: b54f51bbb0dfcf724543a3fde8735562
+    Hash: 692619647ea4b029bd4b39aa0dc56ca9
   m_OptimizeCatalogSize: 0
   m_BuildRemoteCatalog: 0
   m_BundleLocalCatalog: 0
@@ -46,6 +46,7 @@ MonoBehaviour:
   m_GroupAssets:
   - {fileID: 11400000, guid: de0bccd0a6a5b6143bc0ceb33217164c, type: 2}
   - {fileID: 11400000, guid: 28a1fdbe8521c2c4c80667c57ecff721, type: 2}
+  - {fileID: 11400000, guid: 985d44560a9d82b4a8a955209838c20f, type: 2}
   - {fileID: 11400000, guid: a22831fa3ce17d947bcfb52f04101f97, type: 2}
   m_BuildSettings:
     m_CompileScriptsInVirtualMode: 0
@@ -90,6 +91,7 @@ MonoBehaviour:
     - default
     - Config
     - UICanvas
+    - Assembly_Game.HotFix
   m_SchemaTemplates: []
   m_GroupTemplateObjects:
   - {fileID: 11400000, guid: 271239c1bf582894880f459dd35d3c16, type: 2}
