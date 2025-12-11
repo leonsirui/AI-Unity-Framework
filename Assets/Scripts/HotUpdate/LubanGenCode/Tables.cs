@@ -16,11 +16,17 @@ namespace cfg
 public partial class Tables
 {
     public Framework.ChapterCfg ChapterCfg {get; private set; }
+    public IslandCfg IslandCfg {get; private set; }
+    public BuildingCfg BuildingCfg {get; private set; }
+    public BridgeCfg BridgeCfg {get; private set; }
 
     /// public Tables(System.Func<string, ByteBuf> loader)
     public Tables()
     {
         ///        /// ChapterCfg = new Framework.ChapterCfg(loader("framework_chaptercfg"));
+        ///        /// IslandCfg = new IslandCfg(loader("islandcfg"));
+        ///        /// BuildingCfg = new BuildingCfg(loader("buildingcfg"));
+        ///        /// BridgeCfg = new BridgeCfg(loader("bridgecfg"));
         ///        /// ResolveRef();
     }
 
@@ -33,6 +39,21 @@ public partial class Tables
 			ChapterCfg = new Framework.ChapterCfg(await loader("framework_chaptercfg")); 
 			tables.Add("Framework.ChapterCfg", ChapterCfg);
 		}));
+		list.Add(UniTask.Create(async () =>
+		{
+			IslandCfg = new IslandCfg(await loader("islandcfg")); 
+			tables.Add("IslandCfg", IslandCfg);
+		}));
+		list.Add(UniTask.Create(async () =>
+		{
+			BuildingCfg = new BuildingCfg(await loader("buildingcfg")); 
+			tables.Add("BuildingCfg", BuildingCfg);
+		}));
+		list.Add(UniTask.Create(async () =>
+		{
+			BridgeCfg = new BridgeCfg(await loader("bridgecfg")); 
+			tables.Add("BridgeCfg", BridgeCfg);
+		}));
 
 		await UniTask.WhenAll(list);
 
@@ -42,6 +63,9 @@ public partial class Tables
     private void ResolveRef()
     {
         ChapterCfg.ResolveRef(this);
+        IslandCfg.ResolveRef(this);
+        BuildingCfg.ResolveRef(this);
+        BridgeCfg.ResolveRef(this);
     }
 }
 

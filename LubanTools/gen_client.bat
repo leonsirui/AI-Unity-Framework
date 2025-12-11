@@ -8,7 +8,7 @@ dotnet %LUBAN_DLL% ^
     -c cs-bin ^
     -d bin  ^
     --conf %CONF_ROOT%\luban.conf ^
-    -x outputCodeDir=%WORKSPACE%\..\Assets\Scripts\LubanGenCode ^
+    -x outputCodeDir=%WORKSPACE%\..\Assets/Scripts/HotUpdate/LubanGenCode ^
     -x outputDataDir=%WORKSPACE%\..\Assets\ConfigAssets\LubanConfig
 
 pause    
