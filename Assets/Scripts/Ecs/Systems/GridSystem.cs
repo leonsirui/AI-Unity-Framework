@@ -41,8 +41,8 @@ namespace GameFramework.ECS.Systems
             {
                 EntityManager.CreateSingleton(new GridConfigComponent
                 {
-                    Width = 100,
-                    Length = 100,
+                    Width = 50,
+                    Length = 50,
                     Height = 15,
                     CellSize = 2.0f
                 });

@@ -17,8 +17,93 @@ MonoBehaviour:
     m_SerializedData: []
   m_GUID: 33312e7ee8c7d3a4a9f77a10df97c1a7
   m_SerializeEntries:
+  - m_GUID: 056f200c3a24ac84e90446da712a13d0
+    m_Address: Assets/Prefabs/IslandModel/island_100001.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 0d397b0d862066041ab686633271b82b
+    m_Address: Assets/Prefabs/BuildingModel/Model_building_jiemi.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 187caeb518629c140a6d380bb668e17e
+    m_Address: Assets/Prefabs/BridgeModel/Model_bridge_shizilukou.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 20e13a5c25acedb45b3b6ea288f386be
+    m_Address: Assets/Prefabs/IslandModel/island_100004.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 2ad426a33d1dd4444afd3f0c8b3fdc5b
+    m_Address: Assets/Prefabs/Widget/IslandWidget.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 2d2e1d4ca7db3f543b94beab52a37b5a
+    m_Address: Assets/Prefabs/BridgeModel/Model_bridge_xiepo.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 2d6d20404953aa84abb58a4db2b60584
+    m_Address: Assets/Prefabs/BuildingModel/BuildingPrefab.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 3f0d62f3967363c40aaa0d1b57c1d721
+    m_Address: Assets/Prefabs/Widget/IslandLittleProgressBarWidget.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 4aa88a4b0ea9dc84f82ab8234c021a08
     m_Address: Assets/Resources_moved/GridCell.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 5279bdf0032e3694eadd0b9f80578c42
+    m_Address: Assets/Prefabs/Widget/ConstructIslandWidget.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 54bee8bceddbf2143b5150cda3a3c4a2
+    m_Address: Assets/Prefabs/BridgeModel/Model_bridge_zhuanjiao.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 58be6f81fbad4f54fad3c6d3f85edd7b
+    m_Address: Assets/Prefabs/IslandModel/IslandPrefab.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 6d334c05baf0b71499ef2ad8fe421b54
+    m_Address: Assets/Prefabs/Widget/IslandProgressBarWidget.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 6d8533c652a2c214db853e225c73b5a4
+    m_Address: Assets/Prefabs/BuildingModel/Model_building_tianwen.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 8dcc4cb2f14c3854a8a2e53767a58d7a
+    m_Address: Assets/Prefabs/IslandModel/island_100005.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 8ee603b6666117d4ea7481d4154daf0a
+    m_Address: Assets/Prefabs/BridgeModel/BridgePrefab.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 9177299a3b5e4ef46bce65e2fff95573
+    m_Address: Assets/Prefabs/BridgeModel/Model_bridge_zhidao.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: aa3386a1f1e597c43960b04fb07b1615
+    m_Address: Assets/Prefabs/Widget/ClickBuildingWidget.prefab
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -27,6 +112,31 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels:
     - UICanvas
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: ba7fffb9e78deba49b2e9ca6cb2f9cd0
+    m_Address: Assets/Prefabs/Widget/ChoiceIslandOrBuildingWidget.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: ce094bccd2841954eb48b9167a712f2a
+    m_Address: Assets/Prefabs/IslandModel/island_100003.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: d0219f57a965f4647b1d6c8e96d028a5
+    m_Address: Assets/Prefabs/BuildingModel/Model_building_kafei.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: ecfaaca26b6b6174ca47223df6af6564
+    m_Address: Assets/Prefabs/IslandModel/island_100002.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: ef80f1a3c6e2151429c4567bbbcb7aa4
+    m_Address: Assets/Prefabs/Widget/ClickIslandWidget.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   m_ReadOnly: 0
   m_Settings: {fileID: 11400000, guid: cc15f4d430e097c4f80e72e0071bd0a4, type: 2}

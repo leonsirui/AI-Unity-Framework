@@ -41,28 +41,30 @@ namespace GameFramework.ECS.Components
         public int Height;
         public float CellSize;
     }
-
     // 放置系统状态
     public struct PlacementStateComponent : IComponentData
     {
-        public bool IsActive;           // 是否开启放置模式
-        public int CurrentObjectId;     // 当前选中的物体ID（对应预制体/Config）
-        public PlacementType Type;      // 放置类型
-        public Entity PreviewEntity;    // 当前预览实体的引用
-        public int3 CurrentGridPos;     // 当前鼠标对齐的网格坐标
-        public bool IsPositionValid;    // 当前位置是否可以建造
+        public bool IsActive;
+        public int CurrentObjectId;
+        public PlacementType Type;
+        public int3 CurrentGridPos;
+        public bool IsPositionValid;
+
+        // [新增] 旋转角度 (0, 1, 2, 3 对应 0, 90, 180, 270)
+        public int RotationIndex;
     }
 
-    // 放置请求（作为一次性命令组件）
+    // 放置请求
     public struct PlaceObjectRequest : IComponentData
     {
-        public int ObjectId;       // 配置ID (对应 Prefab)
-        public int3 Position;      // 锚点位置
-        public int3 Size;          // 尺寸 (长, 高, 宽)
-        public PlacementType Type; // 类型
+        public int ObjectId;
+        public int3 Position;
+        public int3 Size;
+        public PlacementType Type;
+        public int AirspaceHeight;
 
-        // --- 新增岛屿特有参数 ---
-        public int AirspaceHeight; // 岛屿空域高度 (仅 Type == Island 时有效)
+        // [新增] 最终的旋转四元数
+        public quaternion Rotation;
     }
 
     public enum PlacementType
