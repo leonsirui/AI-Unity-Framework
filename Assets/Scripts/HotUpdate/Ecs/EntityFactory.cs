@@ -3,6 +3,7 @@ using GameFramework.Managers;
 using System.Collections.Generic;
 using Unity.Entities;
 using Unity.Mathematics;
+using Unity.Physics;
 using Unity.Rendering;
 using Unity.Transforms;
 using UnityEngine;
@@ -66,18 +67,25 @@ namespace GameFramework.ECS
         }
 
 
-        public Entity SpawnColliderEntity(int configId, float3 position, quaternion rotation,Unity.Physics.BoxGeometry ccb, float scale = 1f)
+        // 在 EntityFactory.cs 中
+        // 确保引入命名空间
+
+        public Entity SpawnColliderEntity(int configId, float3 position, quaternion rotation, Unity.Physics.BoxGeometry ccb, float scale = 1f)
         {
             if (!_entityPrefabCache.TryGetValue(configId, out Entity prefabEntity))
             {
-                Debug.LogError($"[EntityFactory] 原型未加载，请先调用 LoadEntityArchetypeAsync. ConfigID: {configId}");
+                Debug.LogError($"[EntityFactory] 原型未加载. ConfigID: {configId}");
                 return Entity.Null;
             }
+
+            // 1. 创建碰撞体数据
+            // 【重要提示】请确保 ccb.Size 不是 (0,0,0)，否则碰撞盒是无限小的，看不到也摸不着
             BlobAssetReference<Unity.Physics.Collider> colliderBlob = Unity.Physics.BoxCollider.Create(ccb, Unity.Physics.CollisionFilter.Default);
-            // ECS 实例化非常快
+
+            // 2. 实例化实体
             Entity newEntity = _entityManager.Instantiate(prefabEntity);
 
-            // 设置位置信息
+            // 3. 设置 Transform
             _entityManager.SetComponentData(newEntity, new LocalTransform
             {
                 Position = position,
@@ -85,9 +93,23 @@ namespace GameFramework.ECS
                 Scale = scale
             });
 
+            // 4. 添加 PhysicsCollider 组件
             _entityManager.AddComponentData(newEntity, new Unity.Physics.PhysicsCollider { Value = colliderBlob });
 
-            // 移除 Prefab 标签，这样它就会被 Systems 处理并渲染
+            // =========================================================================================
+            // 【核心修复】必须添加 PhysicsWorldIndex，否则物理系统会忽略它！
+            // 0 代表默认的主物理世界。这是一个 SharedComponent。
+            _entityManager.AddSharedComponent(newEntity, new PhysicsWorldIndex { Value = 0 });
+            // =========================================================================================
+
+            // 5. 【保险起见】确保有 LocalToWorld
+            // 虽然 System 可能会加，但手动显式添加最稳妥，静态物体依赖它确定世界坐标
+            if (!_entityManager.HasComponent<LocalToWorld>(newEntity))
+            {
+                _entityManager.AddComponent<LocalToWorld>(newEntity);
+            }
+
+            // 6. 移除 Prefab 标签
             _entityManager.RemoveComponent<Prefab>(newEntity);
 
             return newEntity;
@@ -108,7 +130,7 @@ namespace GameFramework.ECS
             if (assetGo == null) return Entity.Null;
 
             Mesh mesh = null;
-            Material material = null;
+            UnityEngine.Material material = null;
 
             // 3. 尝试提取渲染数据 (优先 Mesh，其次 Sprite)
             var meshFilter = assetGo.GetComponentInChildren<MeshFilter>();

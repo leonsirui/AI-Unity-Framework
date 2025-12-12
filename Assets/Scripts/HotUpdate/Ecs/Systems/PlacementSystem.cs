@@ -99,30 +99,30 @@ namespace GameFramework.ECS.Systems
             }
 
             // --- 4. [核心修改] 射线检测获取网格位置 ---
+            // --- 4. [核心修改] 射线检测获取网格位置 ---
             bool hasHoverGrid = false;
 
-            // 构建射线
             UnityEngine.Ray unityRay = _mainCamera.ScreenPointToRay(Input.mousePosition);
             RaycastInput raycastInput = new RaycastInput
             {
                 Start = unityRay.origin,
-                End = unityRay.origin + unityRay.direction * 1000f, // 射线长度
-                Filter = CollisionFilter.Default // 这里的 Filter 可以设置只检测 GridCell 层
+                End = unityRay.origin + unityRay.direction * 1000f,
+                Filter = CollisionFilter.Default
             };
 
             if (collisionWorld.CastRay(raycastInput, out RaycastHit hit))
             {
                 Entity hitEntity = hit.Entity;
-
-                // [新增] 临时测试日志：只要打中东西就打印 Entity 的索引
-                // Debug.Log($"射线击中实体: Index={hitEntity.Index}, 距离={hit.Fraction}");
-
+                Debug.Log($"[检测] EntityIndex: {hitEntity}");
                 if (EntityManager.HasComponent<GridPositionComponent>(hitEntity))
                 {
                     int3 hitGridPos = EntityManager.GetComponentData<GridPositionComponent>(hitEntity).Value;
 
-                    // [新增] 确认日志：打印读出的网格逻辑坐标
-                    Debug.Log($">> 击中网格: ({hitGridPos.x}, {hitGridPos.z})");
+                    // [新增] 点击调试功能
+                    if (Input.GetMouseButtonDown(0))
+                    {
+                        Debug.Log($"[点击网格] EntityIndex: {hitEntity.Index}, GridPos: {hitGridPos}");
+                    }
 
                     state.CurrentGridPos = hitGridPos;
                     hasHoverGrid = true;

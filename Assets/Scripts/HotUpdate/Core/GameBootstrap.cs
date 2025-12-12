@@ -71,9 +71,12 @@ namespace GameFramework.Core
                 World.DefaultGameObjectInjectionWorld = world;
             }
 
-            // 添加自定义系统组
-            var systemGroup = world.GetOrCreateSystemManaged<SimulationSystemGroup>();
-            systemGroup.AddSystemToUpdateList(world.CreateSystem<GameplaySystemGroup>());
+            // 【修正点】使用 DefaultWorldInitialization.GetAllSystems 获取所有系统类型
+            // WorldSystemFilterFlags.Default 包含了 Physics, Transform, Rendering 等所有标准系统
+            var systemTypes = DefaultWorldInitialization.GetAllSystems(WorldSystemFilterFlags.Default);
+
+            // 自动将所有系统添加到对应的 SystemGroup 中 (Simulation, Presentation 等)
+            DefaultWorldInitialization.AddSystemsToRootLevelSystemGroups(world, systemTypes);
         }
     }
 }
