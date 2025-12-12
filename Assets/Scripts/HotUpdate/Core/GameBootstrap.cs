@@ -43,6 +43,7 @@ namespace GameFramework.Core
             InputManager.Instance.Initialize();
             SaveManager.Instance.Initialize();
             PoolManager.Instance.Initialize();
+
             var resManager = GameResourceManager.Instance;
             // 2. 初始化ECS世界
             InitializeECSWorld();

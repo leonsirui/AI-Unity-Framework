@@ -18,7 +18,7 @@ namespace GameFramework.ECS.Systems
     [UpdateInGroup(typeof(GameplaySystemGroup))]
     public partial class PlacementSystem : SystemBase
     {
-        private GridOccupancySystem _gridSystem;
+        private GridSystem _gridSystem;
         private Camera _mainCamera;
 
         // --- 虚影预览相关 ---
@@ -51,7 +51,7 @@ namespace GameFramework.ECS.Systems
 
         protected override void OnStartRunning()
         {
-            _gridSystem = World.GetExistingSystemManaged<GridOccupancySystem>();
+            _gridSystem = World.GetExistingSystemManaged<GridSystem>();
             _mainCamera = Camera.main; // 获取主摄像机
         }
 
