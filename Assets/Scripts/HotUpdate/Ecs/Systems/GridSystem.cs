@@ -36,8 +36,8 @@ namespace GameFramework.ECS.Systems
             {
                 EntityManager.CreateSingleton(new GridConfigComponent
                 {
-                    Width = 100,    // 地图 X 轴长度
-                    Length = 100,   // 地图 Z 轴长度
+                    Width = 50,    // 地图 X 轴长度
+                    Length = 50,   // 地图 Z 轴长度
                     Height = 15,    // 地图 Y 轴高度层数
                     CellSize = 2.0f // 单个格子的世界坐标尺寸
                 });

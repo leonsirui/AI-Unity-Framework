@@ -5,12 +5,10 @@ using GameFramework.ECS.Components;
 using GameFramework.Managers;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.Physics; // [新增] 引入物理命名空间
-using Unity.Physics.Systems; // [新增] 用于获取 PhysicsWorld
+using Unity.Physics;
+using Unity.Physics.Systems;
 using Unity.Transforms;
 using UnityEngine;
-
-// 解决冲突：使用 Unity 物理的 RaycastHit
 using RaycastHit = Unity.Physics.RaycastHit;
 
 namespace GameFramework.ECS.Systems
@@ -19,9 +17,10 @@ namespace GameFramework.ECS.Systems
     public partial class PlacementSystem : SystemBase
     {
         private GridSystem _gridSystem;
+        // [新增] 引用可视化系统
+        private GridEntityVisualizationSystem _gridVisSystem;
         private Camera _mainCamera;
 
-        // --- 虚影预览相关 ---
         private GameObject _previewObject;
         private UnityEngine.Material _validMat;
         private UnityEngine.Material _invalidMat;
@@ -31,9 +30,8 @@ namespace GameFramework.ECS.Systems
         protected override void OnCreate()
         {
             RequireForUpdate<GridConfigComponent>();
-            // [移除] RequireForUpdate<GlobalInputComponent>(); 
             RequireForUpdate<PlacementStateComponent>();
-            RequireForUpdate<PhysicsWorldSingleton>(); // [新增] 需要物理世界单例
+            RequireForUpdate<PhysicsWorldSingleton>();
 
             if (!SystemAPI.HasSingleton<PlacementStateComponent>())
             {
@@ -52,7 +50,9 @@ namespace GameFramework.ECS.Systems
         protected override void OnStartRunning()
         {
             _gridSystem = World.GetExistingSystemManaged<GridSystem>();
-            _mainCamera = Camera.main; // 获取主摄像机
+            // [新增] 获取可视化系统实例
+            _gridVisSystem = World.GetExistingSystemManaged<GridEntityVisualizationSystem>();
+            _mainCamera = Camera.main;
         }
 
         protected override void OnUpdate()
@@ -64,33 +64,43 @@ namespace GameFramework.ECS.Systems
             var stateRef = SystemAPI.GetSingletonRW<PlacementStateComponent>();
             ref var state = ref stateRef.ValueRW;
 
-            // --- 0. 调试开关 (按 B 键) ---
+            // --- 调试开关 (按 B 键) ---
             if (Input.GetKeyDown(KeyCode.B))
             {
                 state.IsActive = !state.IsActive;
                 state.Type = PlacementType.Island;
                 state.CurrentObjectId = 100001;
                 state.RotationIndex = 0;
+
+                // [新增] 根据状态切换网格显示
+                if (state.IsActive)
+                {
+                    // 开启时，显示最底层 (Height 0)
+                    _gridVisSystem?.SetVisualizationRange(0, 0);
+                }
+                else
+                {
+                    // 关闭时，隐藏所有 (-1, -1)
+                    _gridVisSystem?.SetVisualizationRange(-1, -1);
+                }
+
                 Debug.Log($"放置模式: {state.IsActive}");
             }
 
-            if (Input.GetKeyDown(KeyCode.T))
-            {
-                state.IsActive = !state.IsActive;
-                state.Type = PlacementType.Island;
-                state.CurrentObjectId = 100001;
-                state.RotationIndex = 0;
-                Debug.Log($"放置模式: {state.IsActive}");
-            }
-
-            // --- 1. 退出/取消处理 ---
-            // 直接读取 Unity Input
+            // --- 退出/取消处理 ---
             if (!state.IsActive || Input.GetKeyDown(KeyCode.Escape))
             {
-                if (state.IsActive) state.IsActive = false;
+                if (state.IsActive)
+                {
+                    state.IsActive = false;
+                    // [新增] 取消时也要隐藏网格
+                    _gridVisSystem?.SetVisualizationRange(-1, -1);
+                }
                 CleanupPreview();
                 return;
             }
+
+            // ... (后续逻辑保持不变) ...
 
             // --- 2. 资源加载与虚影管理 ---
             if ((_previewObject == null || _lastLoadedObjectId != state.CurrentObjectId) && !_isResourceLoading)
@@ -107,10 +117,8 @@ namespace GameFramework.ECS.Systems
                 state.RotationIndex = (state.RotationIndex + 1) % 4;
             }
 
-            // --- 4. [核心修改] 射线检测获取网格位置 ---
-            // --- 4. [核心修改] 射线检测获取网格位置 ---
+            // --- 4. 射线检测 ---
             bool hasHoverGrid = false;
-
             UnityEngine.Ray unityRay = _mainCamera.ScreenPointToRay(Input.mousePosition);
             RaycastInput raycastInput = new RaycastInput
             {
@@ -122,54 +130,39 @@ namespace GameFramework.ECS.Systems
             if (collisionWorld.CastRay(raycastInput, out RaycastHit hit))
             {
                 Entity hitEntity = hit.Entity;
-                Debug.Log($"[检测] EntityIndex: {hitEntity}");
                 if (EntityManager.HasComponent<GridPositionComponent>(hitEntity))
                 {
                     int3 hitGridPos = EntityManager.GetComponentData<GridPositionComponent>(hitEntity).Value;
-
-                    // [新增] 点击调试功能
-                    if (Input.GetMouseButtonDown(0))
-                    {
-                        Debug.Log($"[点击网格] EntityIndex: {hitEntity.Index}, GridPos: {hitGridPos}");
-                    }
-
                     state.CurrentGridPos = hitGridPos;
                     hasHoverGrid = true;
                 }
             }
 
-            // --- 5. 尺寸计算与预览更新 ---
+            // --- 5. 预览更新 ---
             if (hasHoverGrid)
             {
-                // 获取原始尺寸
                 int3 baseSize = GetObjectSizeFromConfig(state.CurrentObjectId, state.Type);
-
-                // 旋转尺寸
                 int3 rotatedSize = baseSize;
                 if (state.RotationIndex == 1 || state.RotationIndex == 3)
                 {
                     rotatedSize = new int3(baseSize.z, baseSize.y, baseSize.x);
                 }
 
-                // A. 合法性检测
                 state.IsPositionValid = _gridSystem.IsAreaAvailable(state.CurrentGridPos, rotatedSize);
 
-                // B. 计算世界坐标 (含中心偏移)
                 float3 worldPos = new float3(
                     state.CurrentGridPos.x * gridConfig.CellSize + (rotatedSize.x * gridConfig.CellSize * 0.5f),
                     state.CurrentGridPos.y * gridConfig.CellSize,
                     state.CurrentGridPos.z * gridConfig.CellSize + (rotatedSize.z * gridConfig.CellSize * 0.5f)
                 );
 
-                // C. 应用位置和旋转
                 _previewObject.transform.position = worldPos;
                 _previewObject.transform.rotation = quaternion.RotateY(math.radians(90 * state.RotationIndex));
                 _previewObject.SetActive(true);
 
-                // D. 更新材质
                 UpdatePreviewMaterial(state.IsPositionValid);
 
-                // --- 6. 确认放置 (鼠标左键) ---
+                // --- 6. 确认放置 ---
                 if (Input.GetMouseButtonDown(0) && state.IsPositionValid)
                 {
                     var requestEntity = EntityManager.CreateEntity();
@@ -182,18 +175,17 @@ namespace GameFramework.ECS.Systems
                         Rotation = quaternion.RotateY(math.radians(90 * state.RotationIndex)),
                         AirspaceHeight = 5
                     });
-
                     Debug.Log($"[Placement] 生成请求: Pos={state.CurrentGridPos}");
                 }
             }
             else
             {
-                // 如果鼠标没有指着网格，隐藏预览
                 if (_previewObject.activeSelf) _previewObject.SetActive(false);
             }
         }
 
-        // --- 辅助方法保持不变 ---
+        // ... (CreatePreviewGameObject, UpdatePreviewMaterial, CleanupPreview, GetObjectSizeFromConfig 保持不变) ...
+
         private async UniTaskVoid CreatePreviewGameObject(int configId, PlacementType type)
         {
             _isResourceLoading = true;
@@ -215,7 +207,6 @@ namespace GameFramework.ECS.Systems
                 }
             }
 
-            Debug.Log(resourcePath);
             if (string.IsNullOrEmpty(resourcePath)) resourcePath = "Assets/Resources_moved/GridCell.prefab";
 
             var prefab = await ResourceManager.Instance.LoadAssetAsync<GameObject>(resourcePath);
