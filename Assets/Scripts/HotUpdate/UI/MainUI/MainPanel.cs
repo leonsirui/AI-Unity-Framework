@@ -1,7 +1,7 @@
 using GameFramework.Managers;
 using GameFramework.UI;
-using GameFramework.Core;   // 引用核心定义 (ResourceType, ResourceChangedEvent)
-using GameFramework.Events; // 引用事件系统
+using GameFramework.Core;
+using GameFramework.Events;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
@@ -14,8 +14,8 @@ class MainPanel : UIPanel
 
     //资源信息部分
     [UIBind] private TextMeshProUGUI m_tmp_WoodNumText;
-    [UIBind] private TextMeshProUGUI m_tmp_RockNumText; // 对应 Stone
-    [UIBind] private TextMeshProUGUI m_tmp_OilNumText;  // 假设对应 Oil (需在ResourceType枚举中添加)
+    [UIBind] private TextMeshProUGUI m_tmp_RockNumText;
+    [UIBind] private TextMeshProUGUI m_tmp_OilNumText;
     [UIBind] private TextMeshProUGUI m_tmp_GoldCoinNumText;
 
     //活动按钮部分
@@ -28,13 +28,12 @@ class MainPanel : UIPanel
     protected override void OnInit()
     {
         base.OnInit();
-
-        // 1. 订阅资源变化事件
-        // 注意：使用了之前定义的泛型 Subscribe 方法
-        EventManager.Instance.Subscribe<ResourceChangedEvent>(OnResourceChanged);
+        // 订阅资源变化事件
+        //EventManager.Instance.Subscribe<ResourceChangedEvent>(OnResourceChanged);
+        // 初始化时主动刷新一次所有资源显示
+        RefreshAllResources();
     }
 
-    // 建议添加 OnDestroy 或 OnClose 来移除监听，防止内存泄漏
     protected void OnDestroy()
     {
         if (EventManager.Instance != null)
@@ -43,12 +42,9 @@ class MainPanel : UIPanel
         }
     }
 
-    // 每次显示时调用
     protected override void OnShow()
     {
         base.OnShow();
-
-        // 2. 面板打开时，主动获取一次当前所有数据，确保显示正确
         RefreshAllResources();
     }
 
@@ -57,46 +53,72 @@ class MainPanel : UIPanel
     /// </summary>
     private void OnResourceChanged(ResourceChangedEvent evt)
     {
-        // 根据变化的类型，只更新对应的文本，提高性能
         switch (evt.Type)
         {
             case ResourceType.Wood:
-                m_tmp_WoodNumText.text = evt.NewValue.ToString();
+                if (m_tmp_WoodNumText != null)
+                    m_tmp_WoodNumText.text = evt.NewValue.ToString();
+                else
+                    Debug.LogError("[MainPanel] m_tmp_WoodNumText is null! Check UI Bindings.");
                 break;
+
             case ResourceType.Stone:
-                m_tmp_RockNumText.text = evt.NewValue.ToString();
+                if (m_tmp_RockNumText != null)
+                    m_tmp_RockNumText.text = evt.NewValue.ToString();
+                else
+                    Debug.LogError("[MainPanel] m_tmp_RockNumText is null! Check UI Bindings.");
                 break;
+
             case ResourceType.Gold:
-                m_tmp_GoldCoinNumText.text = evt.NewValue.ToString();
+                if (m_tmp_GoldCoinNumText != null)
+                    m_tmp_GoldCoinNumText.text = evt.NewValue.ToString();
+                else
+                    Debug.LogError("[MainPanel] m_tmp_GoldCoinNumText is null! Check UI Bindings.");
                 break;
-                // 如果你在 ResourceType 中定义了 Oil，在这里处理
-                // case ResourceType.Oil:
-                //     m_tmp_OilNumText.text = evt.NewValue.ToString();
-                //     break;
         }
     }
 
     /// <summary>
-    /// 主动刷新所有资源显示 (用于 OnShow)
+    /// 主动刷新所有资源显示
     /// </summary>
     private void RefreshAllResources()
     {
         var resMgr = GameResourceManager.Instance;
+        if (resMgr == null)
+        {
+            Debug.Log("GameResourceManager未初始化");
+            return;
+        }
 
-        // 获取当前数值
         int wood = resMgr.GetResource(ResourceType.Wood);
         int stone = resMgr.GetResource(ResourceType.Stone);
         int gold = resMgr.GetResource(ResourceType.Gold);
-        int oil = 0; // resMgr.GetResource(ResourceType.Oil); // 需补充枚举定义
+        int oil = 0;
 
         SetResourcesNum(wood, stone, oil, gold);
     }
 
     private void SetResourcesNum(int wood, int rock, int oil, int goldCoin)
     {
-        if (m_tmp_WoodNumText) m_tmp_WoodNumText.text = wood.ToString();
-        if (m_tmp_RockNumText) m_tmp_RockNumText.text = rock.ToString();
-        if (m_tmp_OilNumText) m_tmp_OilNumText.text = oil.ToString();
-        if (m_tmp_GoldCoinNumText) m_tmp_GoldCoinNumText.text = goldCoin.ToString();
+        // 如果组件为空，则输出 Error 日志，便于调试发现问题
+        if (m_tmp_WoodNumText != null)
+            m_tmp_WoodNumText.text = wood.ToString();
+        else
+            Debug.LogError($"[MainPanel] Resource Update Failed: {nameof(m_tmp_WoodNumText)} is null.");
+
+        if (m_tmp_RockNumText != null)
+            m_tmp_RockNumText.text = rock.ToString();
+        else
+            Debug.LogError($"[MainPanel] Resource Update Failed: {nameof(m_tmp_RockNumText)} is null.");
+
+        if (m_tmp_OilNumText != null)
+            m_tmp_OilNumText.text = oil.ToString();
+        else
+            Debug.LogError($"[MainPanel] Resource Update Failed: {nameof(m_tmp_OilNumText)} is null.");
+
+        if (m_tmp_GoldCoinNumText != null)
+            m_tmp_GoldCoinNumText.text = goldCoin.ToString();
+        else
+            Debug.LogError($"[MainPanel] Resource Update Failed: {nameof(m_tmp_GoldCoinNumText)} is null.");
     }
 }

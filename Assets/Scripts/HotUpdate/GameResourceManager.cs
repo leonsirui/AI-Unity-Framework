@@ -26,10 +26,13 @@ namespace GameFramework.Managers
             foreach (ResourceType type in Enum.GetValues(typeof(ResourceType)))
             {
                 string key = GetSaveKey(type);
-                int value = PlayerPrefs.GetInt(key, 0);
+                int value = PlayerPrefs.GetInt(key, 1000);
                 _resourceCache[type] = value;
+
+                // 新增：打印加载后的资源数量
+                Debug.Log($"[GameResourceManager] Resource Loaded: {type} = {value}");
             }
-            Debug.Log("[GameResourceManager] Resources Loaded.");
+            Debug.Log("[GameResourceManager] All Resources Loaded.");
         }
 
         public int GetResource(ResourceType type)
