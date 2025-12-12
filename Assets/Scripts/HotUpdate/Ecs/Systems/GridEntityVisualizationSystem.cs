@@ -123,7 +123,7 @@ namespace GameFramework.ECS.Systems
                         // 这样 Unity.Physics 的射线才能检测到它
 
                         // [可选] 挂载标签组件，方便后续进行特定过滤
-                        EntityManager.AddComponent<GridCellTag>(cellEntity);
+                        //EntityManager.AddComponent<GridCellTag>(cellEntity);
 
                         _spawnedGridEntities.Add(cellEntity);
                     }

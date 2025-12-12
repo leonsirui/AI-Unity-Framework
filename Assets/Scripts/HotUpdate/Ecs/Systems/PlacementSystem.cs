@@ -74,6 +74,15 @@ namespace GameFramework.ECS.Systems
                 Debug.Log($"放置模式: {state.IsActive}");
             }
 
+            if (Input.GetKeyDown(KeyCode.T))
+            {
+                state.IsActive = !state.IsActive;
+                state.Type = PlacementType.Island;
+                state.CurrentObjectId = 100001;
+                state.RotationIndex = 0;
+                Debug.Log($"放置模式: {state.IsActive}");
+            }
+
             // --- 1. 退出/取消处理 ---
             // 直接读取 Unity Input
             if (!state.IsActive || Input.GetKeyDown(KeyCode.Escape))

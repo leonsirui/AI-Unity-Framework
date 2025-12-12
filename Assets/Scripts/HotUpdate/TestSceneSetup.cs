@@ -8,6 +8,7 @@ using Unity.Mathematics;
 using UnityEditor.Experimental.GraphView;
 using UnityEngine;
 using GameFramework.Gameplay;
+using GameFramework.Managers;
 
 namespace GameFramework.Examples
 {
@@ -26,6 +27,7 @@ namespace GameFramework.Examples
 
             var entityManager = World.DefaultGameObjectInjectionWorld.EntityManager;
             var factory = new EntityFactory(entityManager);
+            _ = UIManager.Instance.ShowPanelAsync<MainPanel>("MainPanel");
         }
 
         private void CreateEnvironment()

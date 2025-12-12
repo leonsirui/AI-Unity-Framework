@@ -39,10 +39,11 @@ namespace GameFramework.Core
             ConfigManager.Instance.Initialize(gameConfig);
             await ConfigManager.Instance.LoadLubanTablesAsync(); 
             await ResourceManager.Instance.InitializeAsync();
+            await UIManager.Instance.InitializeAsync();
             InputManager.Instance.Initialize();
             SaveManager.Instance.Initialize();
             PoolManager.Instance.Initialize();
-
+            var resManager = GameResourceManager.Instance;
             // 2. 初始化ECS世界
             InitializeECSWorld();
 
@@ -67,8 +68,7 @@ namespace GameFramework.Core
             var world = World.DefaultGameObjectInjectionWorld;
             if (world == null)
             {
-                world = new World("GameWorld");
-                World.DefaultGameObjectInjectionWorld = world;
+                Debug.LogError("错误，没有默认世界");
             }
 
             // 【修正点】使用 DefaultWorldInitialization.GetAllSystems 获取所有系统类型
