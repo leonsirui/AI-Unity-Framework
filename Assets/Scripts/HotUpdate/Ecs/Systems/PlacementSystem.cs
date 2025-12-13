@@ -16,14 +16,17 @@ namespace GameFramework.ECS.Systems
     [UpdateInGroup(typeof(GameplaySystemGroup))]
     public partial class PlacementSystem : SystemBase
     {
+        //材质
+        private UnityEngine.Material _validMat;
+        private UnityEngine.Material _invalidMat;
+
+
         private GridSystem _gridSystem;
         // [新增] 引用可视化系统
         private GridEntityVisualizationSystem _gridVisSystem;
         private Camera _mainCamera;
 
         private GameObject _previewObject;
-        private UnityEngine.Material _validMat;
-        private UnityEngine.Material _invalidMat;
         private int _lastLoadedObjectId = -1;
         private bool _isResourceLoading = false;
 
@@ -43,8 +46,8 @@ namespace GameFramework.ECS.Systems
 
         private void LoadMaterials()
         {
-            _validMat = Resources.Load<UnityEngine.Material>("Prefabs/Green");
-            _invalidMat = Resources.Load<UnityEngine.Material>("Prefabs/Red");
+            _validMat = Resources.Load<UnityEngine.Material>("Green");
+            _invalidMat = Resources.Load<UnityEngine.Material>("Red");
         }
 
         protected override void OnStartRunning()
@@ -184,8 +187,6 @@ namespace GameFramework.ECS.Systems
             }
         }
 
-        // ... (CreatePreviewGameObject, UpdatePreviewMaterial, CleanupPreview, GetObjectSizeFromConfig 保持不变) ...
-
         private async UniTaskVoid CreatePreviewGameObject(int configId, PlacementType type)
         {
             _isResourceLoading = true;
@@ -196,26 +197,32 @@ namespace GameFramework.ECS.Systems
             {
                 switch (type)
                 {
-                    case PlacementType.Building:
-                        var bCfg = ConfigManager.Instance.Tables.BuildingCfg.Get(configId);
-                        resourcePath = bCfg?.ResourceName;
-                        break;
                     case PlacementType.Island:
-                        var iCfg = ConfigManager.Instance.Tables.IslandCfg.Get(configId);
-                        resourcePath = iCfg?.ResourceName;
+                        var islandCfg = ConfigManager.Instance.Tables.IslandCfg.Get(configId);
+                        resourcePath = islandCfg?.ResourceName;
+                        break;
+                    case PlacementType.Building:
+                        var buildingCfg = ConfigManager.Instance.Tables.BuildingCfg.Get(configId);
+                        resourcePath = buildingCfg?.ResourceName;
+                        break;
+                    case PlacementType.Bridge:
+                        var bridgeCfg = ConfigManager.Instance.Tables.BridgeCfg.Get(configId);
+                        resourcePath = bridgeCfg?.ResourceName;
                         break;
                 }
             }
 
-            if (string.IsNullOrEmpty(resourcePath)) resourcePath = "Assets/Resources_moved/GridCell.prefab";
+            if (string.IsNullOrEmpty(resourcePath))
+            {
+                Debug.LogError("资源地址为空");
+            }
 
             var prefab = await ResourceManager.Instance.LoadAssetAsync<GameObject>(resourcePath);
 
             if (prefab != null)
             {
                 if (_previewObject != null) Object.Destroy(_previewObject);
-                _previewObject = Object.Instantiate(prefab);
-                foreach (var c in _previewObject.GetComponentsInChildren<UnityEngine.Collider>()) c.enabled = false;
+                _previewObject = Object.Instantiate(prefab, new Vector3(-90, 0, 0), new quaternion());
                 UpdatePreviewMaterial(true);
             }
             _isResourceLoading = false;
@@ -223,7 +230,10 @@ namespace GameFramework.ECS.Systems
 
         private void UpdatePreviewMaterial(bool isValid)
         {
-            if (_previewObject == null || _validMat == null || _invalidMat == null) return;
+            if (_previewObject == null || _validMat == null || _invalidMat == null)
+            {
+                Debug.LogError("物体虚影或表现材质丢失");
+            }
             var renderers = _previewObject.GetComponentsInChildren<Renderer>();
             UnityEngine.Material targetMat = isValid ? _validMat : _invalidMat;
             foreach (var r in renderers)

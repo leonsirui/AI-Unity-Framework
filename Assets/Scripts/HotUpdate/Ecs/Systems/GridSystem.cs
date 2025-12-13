@@ -158,6 +158,204 @@ namespace GameFramework.ECS.Systems
             return true;
         }
 
+        /// <summary>
+        /// 注销岛屿 (对应 GridManager.UnregisterIsland)
+        /// </summary>
+        public bool UnregisterIsland(int3 pos, int3 size, int airspace, FixedString64Bytes islandId)
+        {
+            if (!WorldGrid.IsCreated) return false;
+
+            int3 startPos = new int3(pos.x, pos.y - size.y + 1, pos.z);
+
+            // A. 清除岛屿本体
+            for (int x = 0; x < size.x; x++)
+                for (int z = 0; z < size.z; z++)
+                    for (int h = 0; h < size.y; h++)
+                    {
+                        int3 current = startPos + new int3(x, h, z);
+                        ResetCellIfMatch(current, islandId);
+                    }
+
+            // B. 清除空域
+            for (int x = 0; x < size.x; x++)
+                for (int z = 0; z < size.z; z++)
+                    for (int h = 1; h <= airspace; h++)
+                    {
+                        int3 current = pos + new int3(x, h, z);
+                        ResetCellIfMatch(current, islandId);
+                    }
+
+            // C. 清除表面属性 (pos.y + 1)
+            for (int x = 0; x < size.x; x++)
+                for (int z = 0; z < size.z; z++)
+                {
+                    int3 surfaceKey = pos + new int3(x, 1, z);
+                    // 表面通常没有 IslandID 标记在 Grid 数据里(只有IsBuildable=true)，
+                    // 但我们需要将其重置为不可移动/不可建造
+                    UpdateCell(surfaceKey, (ref GridCellData data) =>
+                    {
+                        data.IsMovable = false;
+                        data.IsBuildable = false;
+                    });
+                }
+
+            return true;
+        }
+
+        // --- 3. 建筑管理逻辑 ---
+
+        /// <summary>
+        /// 注册建筑 (对应 GridManager.RegisterBuilding)
+        /// </summary>
+        /// <param name="pos">建筑锚点坐标</param>
+        /// <param name="size">建筑尺寸 (x, 1, z)</param>
+        /// <param name="buildingId">建筑ID</param>
+        public bool RegisterBuilding(int3 pos, int3 size, FixedString64Bytes buildingId)
+        {
+            if (!WorldGrid.IsCreated) return false;
+
+            // 1. 预检查：确保所有目标格子都是"可建造的空地"
+            // 建筑通常建造在岛屿表面，所以 IsBuildable 必须为 true，且当前 Type 必须是 Space
+            for (int x = 0; x < size.x; x++)
+            {
+                for (int z = 0; z < size.z; z++)
+                {
+                    // 建筑通常只占一层高度，或者是配置指定的高度
+                    for (int y = 0; y < size.y; y++)
+                    {
+                        int3 current = pos + new int3(x, y, z);
+                        if (!WorldGrid.TryGetValue(current, out GridCellData cell))
+                        {
+                            Debug.LogWarning($"[GridSystem] 建筑位置无效: {current}");
+                            return false;
+                        }
+
+                        if (cell.Type != GridType.Space || !cell.IsBuildable)
+                        {
+                            Debug.LogWarning($"[GridSystem] 建筑位置不可建: {current} Type:{cell.Type} Buildable:{cell.IsBuildable}");
+                            return false;
+                        }
+                    }
+                }
+            }
+
+            // 2. 执行注册：修改状态
+            for (int x = 0; x < size.x; x++)
+            {
+                for (int z = 0; z < size.z; z++)
+                {
+                    for (int y = 0; y < size.y; y++)
+                    {
+                        int3 current = pos + new int3(x, y, z);
+                        UpdateCell(current, (ref GridCellData data) =>
+                        {
+                            data.Type = GridType.Building;
+                            data.BuildingID = buildingId;
+                            data.IsMovable = false;   // 建筑阻挡移动
+                            data.IsBuildable = false; // 建筑上不能重叠建造
+                        });
+                    }
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>
+        /// 注销建筑 (对应 GridManager.UnregisterBuilding)
+        /// </summary>
+        public bool UnregisterBuilding(int3 pos, int3 size, FixedString64Bytes buildingId)
+        {
+            if (!WorldGrid.IsCreated) return false;
+
+            for (int x = 0; x < size.x; x++)
+            {
+                for (int z = 0; z < size.z; z++)
+                {
+                    for (int y = 0; y < size.y; y++)
+                    {
+                        int3 current = pos + new int3(x, y, z);
+
+                        // 只有 ID 匹配时才清除，防止误删
+                        if (WorldGrid.TryGetValue(current, out GridCellData cell) &&
+                            cell.Type == GridType.Building &&
+                            cell.BuildingID == buildingId)
+                        {
+                            UpdateCell(current, (ref GridCellData data) =>
+                            {
+                                data.Type = GridType.Space;
+                                data.BuildingID = "";
+                                // 恢复为岛屿表面的属性 (可移动、可建造)
+                                // 注意：如果建筑下面不是岛屿表面，这里逻辑可能需要根据实际情况调整
+                                data.IsMovable = true;
+                                data.IsBuildable = true;
+                            });
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+
+        // --- 4. 桥梁管理逻辑 ---
+
+        /// <summary>
+        /// 注册桥梁 (对应 GridManager.RegisterBridge)
+        /// </summary>
+        public bool RegisterBridge(int3 pos, FixedString64Bytes bridgeId)
+        {
+            if (!WorldGrid.TryGetValue(pos, out GridCellData cell)) return false;
+
+            // 只有空格子才能造桥
+            if (cell.Type != GridType.Space) return false;
+
+            UpdateCell(pos, (ref GridCellData data) =>
+            {
+                data.Type = GridType.PublicBridge;
+                data.BuildingID = bridgeId; // 复用 BuildingID 字段存储 BridgeID
+                data.IsMovable = true;      // 桥梁可通行
+                data.IsBuildable = false;   // 桥上不能造东西
+            });
+
+            return true;
+        }
+
+        /// <summary>
+        /// 注销桥梁 (对应 GridManager.UnregisterBridge)
+        /// </summary>
+        public bool UnregisterBridge(int3 pos, FixedString64Bytes bridgeId)
+        {
+            if (!WorldGrid.TryGetValue(pos, out GridCellData cell)) return false;
+
+            if (cell.BuildingID == bridgeId && (cell.Type == GridType.PublicBridge || cell.Type == GridType.PrivateBridge))
+            {
+                UpdateCell(pos, (ref GridCellData data) =>
+                {
+                    data.Type = GridType.Space;
+                    data.BuildingID = "";
+                    data.IsMovable = false; // 空中恢复为不可通行
+                    data.IsBuildable = false;
+                });
+                return true;
+            }
+            return false;
+        }
+
+        private void ResetCellIfMatch(int3 pos, FixedString64Bytes id)
+        {
+            if (WorldGrid.TryGetValue(pos, out GridCellData cell))
+            {
+                if (cell.IslandID == id)
+                {
+                    UpdateCell(pos, (ref GridCellData data) =>
+                    {
+                        data.Type = GridType.Space;
+                        data.IslandID = "";
+                    });
+                }
+            }
+        }
+
         // --- 3. 辅助方法 ---
 
         // 定义委托，用于原地修改 Struct 数据
@@ -299,10 +497,10 @@ namespace GameFramework.ECS.Systems
     }
     // [对应 GridData.cs 中的 GridType 枚举]
     public enum GridType : byte
-    {
-        Space,          // 空地
+    {Space,          // 空地
         Island,         // 岛屿实体
         IslandAirspace, // 岛屿空域
+        Building,       // [新增] 建筑
         PublicBridge,   // 公共桥梁
         PrivateBridge   // 私人桥梁
     }

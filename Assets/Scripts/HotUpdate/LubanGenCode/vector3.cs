@@ -14,17 +14,13 @@ namespace cfg
 {
 public partial struct vector3
 {
-    public vector3(ByteBuf _buf) 
+    public vector3(int v, ByteBuf _buf) 
     {
         X = _buf.ReadFloat();
         Y = _buf.ReadFloat();
         Z = _buf.ReadFloat();
     }
 
-    public static vector3 Deserializevector3(ByteBuf _buf)
-    {
-        return new vector3(_buf);
-    }
 
     public readonly float X;
     public readonly float Y;
