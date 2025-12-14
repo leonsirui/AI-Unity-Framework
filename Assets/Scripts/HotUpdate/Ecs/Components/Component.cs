@@ -1,6 +1,7 @@
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
+using UnityEngine;
 
 namespace GameFramework.ECS.Components
 {
@@ -65,17 +66,6 @@ namespace GameFramework.ECS.Components
         public int RotationIndex;
     }
 
-    // [保留] 放置请求
-    public struct PlaceObjectRequest : IComponentData
-    {
-        public int ObjectId;
-        public int3 Position;
-        public int3 Size;
-        public PlacementType Type;
-        public int AirspaceHeight;
-        public quaternion Rotation;
-    }
-
     public enum PlacementType
     {
         None,
@@ -86,11 +76,40 @@ namespace GameFramework.ECS.Components
     #endregion
 
     #region 岛屿相关组件定义
+    public struct NewIslandTag : IComponentData { }
+
+    // 1. 岛屿基础数据组件
     public struct IslandComponent : IComponentData
     {
-        public int AirspaceHeight; // 空域高度
+        public int ConfigId;       // 配置表ID
+        public int3 Size;          // 尺寸 (长, 高, 宽)
+        public int AirSpace;       // 空域高度
+        // 可扩展：人口上限、当前等级等
     }
-    public struct NewIslandTag : IComponentData { }
+
+    // 2. 放置请求组件 (用于系统间传递指令)
+    public struct PlaceObjectRequest : IComponentData
+    {
+        public int ObjectId;
+        public int3 Position;      // 网格坐标
+        public PlacementType Type; // 类型
+        public int3 Size;          // 实际占用尺寸
+        public quaternion Rotation;
+        public int AirspaceHeight;
+    }
+
+    // 3. 资源引用组件 (告诉可视化系统加载什么)
+    public struct AssetReferenceComponent : IComponentData
+    {
+        public Unity.Collections.FixedString64Bytes ResourcePath;
+    }
+
+    // 4. 视图实例组件 (Managed组件，用于持有GameObject)
+    public class ViewInstanceComponent : IComponentData
+    {
+        public GameObject GameObject;
+        public Transform Transform;
+    }
     #endregion
 
     #region 寻路相关组件定义

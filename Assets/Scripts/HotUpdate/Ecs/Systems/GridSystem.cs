@@ -492,6 +492,46 @@ namespace GameFramework.ECS.Systems
             path.Reverse();
             return path;
         }
+
+        /// <summary>
+        /// 将网格坐标转换为世界坐标 (中心点对齐)
+        /// </summary>
+        public Vector3 GridToWorldPosition(int3 gridPos, int3 size)
+        {
+            var config = SystemAPI.GetSingleton<GridConfigComponent>();
+            float cellSize = config.CellSize;
+
+            // 计算几何中心
+            float x = gridPos.x * cellSize + (size.x * cellSize * 0.5f) - (cellSize * 0.5f);
+            float y = gridPos.y * cellSize;
+            float z = gridPos.z * cellSize + (size.z * cellSize * 0.5f) - (cellSize * 0.5f);
+
+            return new Vector3(x, y, z);
+        }
+
+        /// <summary>
+        /// 注册岛屿占用
+        /// </summary>
+        public void SetIslandOccupancy(int3 startPos, int3 size, int airSpace, bool isOccupied)
+        {
+            // 遍历岛屿占据的所有格子并设置状态
+            for (int x = 0; x < size.x; x++)
+            {
+                for (int z = 0; z < size.z; z++)
+                {
+                    // 岛屿通常占据多层高度 (从 startPos.y 向下 或者 包含 airSpace)
+                    // 这里根据项目1逻辑：startPos 是锚点，通常是顶部或底部，需确认坐标系
+                    // 假设 startPos.y 是岛屿的"表面"高度
+
+                    int targetX = startPos.x + x;
+                    int targetZ = startPos.z + z;
+
+                    // 标记 GridData (你需要根据你的 GridData 结构实现具体逻辑)
+                    // SetGridState(targetX, startPos.y, targetZ, GridState.Occupied);
+                }
+            }
+            Debug.Log($"[GridSystem] Grid Updated for Island at {startPos}");
+        }
     }
 
     public struct GridCellData
