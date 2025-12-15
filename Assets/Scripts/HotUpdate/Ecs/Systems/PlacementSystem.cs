@@ -218,20 +218,22 @@ namespace GameFramework.ECS.Systems
         {
             gridPos = int3.zero;
             UnityEngine.Ray unityRay = _mainCamera.ScreenPointToRay(Input.mousePosition);
-            RaycastInput raycastInput = new RaycastInput { Start = unityRay.origin, End = unityRay.origin + unityRay.direction * 1000f, Filter = CollisionFilter.Default };
+            // 增加射线长度，确保能检测到
+            RaycastInput raycastInput = new RaycastInput { Start = unityRay.origin, End = unityRay.origin + unityRay.direction * 5000f, Filter = CollisionFilter.Default };
 
             if (collisionWorld.CastRay(raycastInput, out RaycastHit hit))
             {
+                // [修改点 1] 严格检查：只有当击中的实体拥有 GridPositionComponent 组件时才视为有效
                 if (EntityManager.HasComponent<GridPositionComponent>(hit.Entity))
                 {
                     gridPos = EntityManager.GetComponentData<GridPositionComponent>(hit.Entity).Value;
+                    // 强制覆盖 Y 轴为当前的放置层级 (虽然是点击了格子，但放置逻辑可能在空中)
                     gridPos.y = _currentPlacementLayer;
                     return true;
                 }
-                float3 hitPoint = hit.Position;
-                gridPos = _gridSystem.WorldToGridPosition(hitPoint);
-                gridPos.y = _currentPlacementLayer;
-                return true;
+
+                // [修改点 1] 如果击中的是没有 Grid 组件的普通物体（如背景、未初始化的地面），直接忽略
+                // 之前的 float3 hitPoint = hit.Position... 逻辑已被移除
             }
             return false;
         }
@@ -288,11 +290,9 @@ namespace GameFramework.ECS.Systems
             if (_previewObject == null) return;
             _previewObject.SetActive(true);
 
-            float3 worldPos = new float3(
-                gridPos.x * cellSize + (size.x * cellSize * 0.5f) - (cellSize * 0.5f),
-                gridPos.y * cellSize,
-                gridPos.z * cellSize + (size.z * cellSize * 0.5f) - (cellSize * 0.5f)
-            );
+            // [修改点 2] 不再手动计算偏移，而是调用 GridSystem 的接口
+            // 传入计算好的 逻辑锚点坐标(gridPos) 和 尺寸(size)
+            float3 worldPos = _gridSystem.CalculateObjectCenterWorldPosition(gridPos, size);
 
             _previewObject.transform.position = worldPos;
             _previewObject.transform.rotation = math.mul(quaternion.RotateY(math.radians(90 * rotIndex)), _defaultRotation);

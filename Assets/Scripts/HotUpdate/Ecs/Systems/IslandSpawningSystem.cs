@@ -106,8 +106,6 @@ namespace GameFramework.ECS.Systems
         /// <summary>
         /// 尝试生成岛屿实体
         /// </summary>
-        /// <param name="spawnedEntity">输出生成的实体</param>
-        /// <returns>如果是 true 表示生成成功；如果 false 表示资源未就绪，需等待</returns>
         private bool TrySpawnIsland(PlaceObjectRequest req, out Entity spawnedEntity)
         {
             spawnedEntity = Entity.Null;
@@ -123,7 +121,7 @@ namespace GameFramework.ECS.Systems
             if (string.IsNullOrEmpty(resourcePath))
             {
                 Debug.LogError($"配置无效 ID: {req.ObjectId}");
-                return true; // 视为失败但已处理（配置错误无法重试）
+                return true;
             }
 
             // B. 计算物理参数
@@ -138,16 +136,26 @@ namespace GameFramework.ECS.Systems
                 BevelRadius = 0f
             };
 
-            // 使用 GridSystem 的转换方法确保对齐一致
             float3 worldPos = _gridSystem.GridToWorldPosition(req.Position, req.Size);
 
-            // C. 调用工厂生成
-            spawnedEntity = _entityFactory.SpawnColliderEntity(
-                req.ObjectId,
-                worldPos,
-                req.Rotation,
-                boxGeometry
-            );
+            // ========================= 修改开始 =========================
+            // C. 检查与生成
+            // 先检查工厂里是否有这个 Entity 的原型，避免直接调用 Spawn 报错
+            if (_entityFactory.HasEntity(req.ObjectId))
+            {
+                spawnedEntity = _entityFactory.SpawnColliderEntity(
+                    req.ObjectId,
+                    worldPos,
+                    req.Rotation,
+                    boxGeometry
+                );
+            }
+            else
+            {
+                // 如果没有，保持 spawnedEntity 为 Null，流转到下方 D 步骤触发加载
+                spawnedEntity = Entity.Null;
+            }
+            // ========================= 修改结束 =========================
 
             // D. 结果处理
             if (spawnedEntity == Entity.Null)

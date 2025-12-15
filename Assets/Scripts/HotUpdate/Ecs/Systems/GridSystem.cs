@@ -302,6 +302,43 @@ namespace GameFramework.ECS.Systems
             return true;
         }
 
+        /// <summary>
+        /// [复刻项目1] 根据锚点和尺寸计算物体的世界中心坐标
+        /// 逻辑：(锚点世界坐标 + 对角点世界坐标) / 2
+        /// </summary>
+        /// <param name="anchorGridPos">左下角锚点逻辑坐标</param>
+        /// <param name="size">物体尺寸 (已处理旋转)</param>
+        /// <returns>物体中心的世界坐标</returns>
+        public float3 CalculateObjectCenterWorldPosition(int3 anchorGridPos, int3 size)
+        {
+            if (!SystemAPI.HasSingleton<GridConfigComponent>()) return float3.zero;
+            float cellSize = SystemAPI.GetSingleton<GridConfigComponent>().CellSize;
+
+            // 1. 获取锚点格子中心的世界坐标 (GridToWorldPosition 默认返回格子中心)
+            // 这里我们手动算一下基础坐标，假设 gridPos.x * cellSize 是格子的原点
+            // 但为了与 GridEntityVisualizationSystem 对齐，通常 0,0 格子的中心在 (0,0,0) 或者 (0.5, 0, 0.5) * cellSize
+            // 这里使用纯数学坐标： x * cellSize
+
+            float3 anchorWorldPos = new float3(
+                anchorGridPos.x * cellSize,
+                anchorGridPos.y * cellSize,
+                anchorGridPos.z * cellSize
+            );
+
+            // 2. 获取对角格子(右上角)的世界坐标
+            // 对角格子的逻辑坐标 = 锚点 + 尺寸 - 1
+            int3 diagonalGridPos = anchorGridPos + new int3(size.x - 1, 0, size.z - 1);
+
+            float3 diagonalWorldPos = new float3(
+                diagonalGridPos.x * cellSize,
+                diagonalGridPos.y * cellSize,
+                diagonalGridPos.z * cellSize
+            );
+
+            // 3. 计算中点
+            return (anchorWorldPos + diagonalWorldPos) * 0.5f;
+        }
+
         // ===========================================================================================
         // 3. 检测与查询 API
         // ===========================================================================================

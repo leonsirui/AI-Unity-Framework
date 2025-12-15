@@ -14,7 +14,6 @@ namespace GameFramework
             {
                 if (_applicationIsQuitting)
                 {
-                    Debug.LogWarning($"[Singleton] Instance '{typeof(T)}' already destroyed. Returning null.");
                     return null;
                 }
 
