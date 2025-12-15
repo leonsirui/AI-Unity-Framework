@@ -17,6 +17,11 @@ MonoBehaviour:
     m_SerializedData: []
   m_GUID: 33312e7ee8c7d3a4a9f77a10df97c1a7
   m_SerializeEntries:
+  - m_GUID: 034934b910676d945b211bf8e085f98f
+    m_Address: building_200002
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 056f200c3a24ac84e90446da712a13d0
     m_Address: island_100001
     m_ReadOnly: 0
@@ -33,7 +38,7 @@ MonoBehaviour:
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 20e13a5c25acedb45b3b6ea288f386be
-    m_Address: Assets/Prefabs/IslandModel/island_100004.prefab
+    m_Address: island_100004
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -52,13 +57,13 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 3f0d62f3967363c40aaa0d1b57c1d721
-    m_Address: Assets/Prefabs/Widget/IslandLittleProgressBarWidget.prefab
+  - m_GUID: 390a911407e4b444bb073d04e4542527
+    m_Address: building_200001
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 4aa88a4b0ea9dc84f82ab8234c021a08
-    m_Address: Assets/Resources_moved/GridCell.prefab
+  - m_GUID: 3f0d62f3967363c40aaa0d1b57c1d721
+    m_Address: Assets/Prefabs/Widget/IslandLittleProgressBarWidget.prefab
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -74,6 +79,11 @@ MonoBehaviour:
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 58be6f81fbad4f54fad3c6d3f85edd7b
     m_Address: Assets/Prefabs/IslandModel/IslandPrefab.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 615abc76912a84344bc7acc0431ea382
+    m_Address: Assets/Resources_moved/GridCell.prefab
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -93,7 +103,7 @@ MonoBehaviour:
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 8dcc4cb2f14c3854a8a2e53767a58d7a
-    m_Address: Assets/Prefabs/IslandModel/island_100005.prefab
+    m_Address: island_100005
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -124,7 +134,7 @@ MonoBehaviour:
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: ce094bccd2841954eb48b9167a712f2a
-    m_Address: Assets/Prefabs/IslandModel/island_100003.prefab
+    m_Address: island_100003
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -134,7 +144,7 @@ MonoBehaviour:
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: ecfaaca26b6b6174ca47223df6af6564
-    m_Address: Assets/Prefabs/IslandModel/island_100002.prefab
+    m_Address: island_100002
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

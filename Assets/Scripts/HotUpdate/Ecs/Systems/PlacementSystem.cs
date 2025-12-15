@@ -18,7 +18,7 @@ namespace GameFramework.ECS.Systems
     public partial class PlacementSystem : SystemBase
     {
         private GridSystem _gridSystem;
-        private GridEntityVisualizationSystem _gridVisSystem; // 1. 恢复引用
+        private GridEntityVisualizationSystem _gridVisSystem;
         private Camera _mainCamera;
 
         private GameObject _previewObject;
@@ -43,7 +43,6 @@ namespace GameFramework.ECS.Systems
                 EntityManager.CreateSingleton<PlacementStateComponent>();
             }
 
-            // 加载材质
             _validMat = Resources.Load<UnityEngine.Material>("Green");
             _invalidMat = Resources.Load<UnityEngine.Material>("Red");
         }
@@ -51,7 +50,7 @@ namespace GameFramework.ECS.Systems
         protected override void OnStartRunning()
         {
             _gridSystem = World.GetExistingSystemManaged<GridSystem>();
-            _gridVisSystem = World.GetExistingSystemManaged<GridEntityVisualizationSystem>(); // 2. 获取系统
+            _gridVisSystem = World.GetExistingSystemManaged<GridEntityVisualizationSystem>();
             _mainCamera = Camera.main;
         }
 
@@ -77,7 +76,6 @@ namespace GameFramework.ECS.Systems
                 _lastPlacementType = state.Type;
             }
 
-            // 资源加载
             if ((_previewObject == null || _lastLoadedObjectId != state.CurrentObjectId) && !_isResourceLoading)
             {
                 CreatePreviewGameObject(state.CurrentObjectId, state.Type).Forget();
@@ -86,29 +84,28 @@ namespace GameFramework.ECS.Systems
 
             if (_previewObject == null) return;
 
-            // 旋转
             if (Input.GetKeyDown(KeyCode.R))
             {
                 state.RotationIndex = (state.RotationIndex + 1) % 4;
             }
 
-            // 1. 射线检测
-            bool hasHoverGrid = PerformRaycast(physicsWorld.CollisionWorld, gridConfig.CellSize, out int3 hitGridPos);
+            // 传入当前模式，决定是否强制覆盖高度
+            bool hasHoverGrid = PerformRaycast(physicsWorld.CollisionWorld, state.Type, out int3 hitGridPos);
 
             if (hasHoverGrid)
             {
                 int3 baseSize = GetObjectSizeFromConfig(state.CurrentObjectId, state.Type);
                 int3 finalSize = (state.RotationIndex % 2 == 1) ? new int3(baseSize.z, baseSize.y, baseSize.x) : baseSize;
 
+                // 计算最终位置 (注意：对于建筑，hitGridPos.y 已经是正确的表面高度)
                 int3 targetGridPos = CalculateFinalPlacementPosition(hitGridPos, finalSize, state.Type);
-                state.CurrentGridPos = targetGridPos;
 
+                state.CurrentGridPos = targetGridPos;
                 state.IsPositionValid = ValidatePosition(state.Type, targetGridPos, finalSize);
 
                 UpdatePreviewTransform(targetGridPos, finalSize, state.RotationIndex, gridConfig.CellSize);
                 UpdatePreviewMaterial(state.IsPositionValid);
 
-                // 确认放置
                 if ((Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Space)) && state.IsPositionValid)
                 {
                     int airSpace = 5;
@@ -128,15 +125,19 @@ namespace GameFramework.ECS.Systems
 
         private void HandleInput(ref PlacementStateComponent state, GridConfigComponent gridConfig)
         {
-            if (Input.GetKeyDown(KeyCode.B)) { ToggleMode(ref state, PlacementType.Island, 100001); }
+            if (Input.GetKeyDown(KeyCode.B)) { ToggleMode(ref state, PlacementType.Island, 100005); }
             if (Input.GetKeyDown(KeyCode.K)) { ToggleMode(ref state, PlacementType.Building, 200001); }
             if (Input.GetKeyDown(KeyCode.L)) { ToggleMode(ref state, PlacementType.Bridge, 300001); }
             if (Input.GetKeyDown(KeyCode.Escape)) { state.IsActive = false; }
 
             if (state.IsActive)
             {
-                if (Input.GetKeyDown(KeyCode.Alpha1)) ChangeHeightLayer(1, gridConfig.Height);
-                if (Input.GetKeyDown(KeyCode.Alpha2)) ChangeHeightLayer(-1, gridConfig.Height);
+                // 只有在岛屿模式下才允许手动调节高度层，建筑模式由网格自动决定高度
+                if (state.Type == PlacementType.Island)
+                {
+                    if (Input.GetKeyDown(KeyCode.Alpha1)) ChangeHeightLayer(1, gridConfig.Height, state.Type);
+                    if (Input.GetKeyDown(KeyCode.Alpha2)) ChangeHeightLayer(-1, gridConfig.Height, state.Type);
+                }
             }
         }
 
@@ -152,32 +153,41 @@ namespace GameFramework.ECS.Systems
                 state.Type = type;
                 state.CurrentObjectId = defaultId;
                 state.RotationIndex = 0;
-                // 重置模式标记以触发 OnPlacementModeChanged
                 _lastPlacementType = PlacementType.None;
             }
         }
 
-        private void ChangeHeightLayer(int delta, int maxHeight)
+        private void ChangeHeightLayer(int delta, int maxHeight, PlacementType type)
         {
             int oldLayer = _currentPlacementLayer;
             _currentPlacementLayer = math.clamp(_currentPlacementLayer + delta, 0, maxHeight - 1);
 
-            if (_currentPlacementLayer != oldLayer)
+            // 只有当显示的不是“全部可建区域”时，才需要刷新 Visualization
+            if (_currentPlacementLayer != oldLayer && type == PlacementType.Island)
             {
                 Debug.Log($"[Placement] 切换高度层: {oldLayer} -> {_currentPlacementLayer}");
-                // 3. 更新网格显示
                 _gridVisSystem?.SetVisualizationRange(_currentPlacementLayer, _currentPlacementLayer);
             }
         }
 
+        // [关键修改] 根据模式决定显示逻辑
         private void OnPlacementModeChanged(PlacementType newType)
         {
-            // 4. 模式切换时更新网格显示
-            _gridVisSystem?.SetVisualizationRange(_currentPlacementLayer, _currentPlacementLayer);
-
-            if (newType == PlacementType.Bridge)
+            if (newType == PlacementType.Building)
             {
-                ShowBridgeHints();
+                // 建筑模式：只显示所有可建造的网格（不分层级）
+                _gridVisSystem?.ShowBuildableGrids();
+            }
+            else if (newType == PlacementType.Island)
+            {
+                // 岛屿模式：显示当前层级的网格平面
+                _gridVisSystem?.SetVisualizationRange(_currentPlacementLayer, _currentPlacementLayer);
+            }
+            else if (newType == PlacementType.Bridge)
+            {
+                // 桥梁模式 (TODO: ShowBridgeHints)
+                // 暂时先复用可建造显示或留空
+                _gridVisSystem?.SetVisualizationRange(-1, -1);
             }
         }
 
@@ -189,14 +199,16 @@ namespace GameFramework.ECS.Systems
                 _previewObject = null;
             }
             _lastLoadedObjectId = -1;
-            // 5. 退出时隐藏网格
+            // 退出时隐藏所有网格
             _gridVisSystem?.SetVisualizationRange(-1, -1);
             _defaultRotation = quaternion.identity;
         }
 
         private int3 CalculateFinalPlacementPosition(int3 hitPos, int3 size, PlacementType type)
         {
-            int targetY = _currentPlacementLayer;
+            // 对于建筑，hitPos.y 已经来自射线的真实反馈，不要强制覆盖
+            int targetY = (type == PlacementType.Island) ? _currentPlacementLayer : hitPos.y;
+
             int offsetX = (size.x % 2 == 1) ? (size.x / 2) : ((size.x - 1) / 2);
             int offsetZ = (size.z % 2 == 1) ? (size.z / 2) : ((size.z - 1) / 2);
             return new int3(hitPos.x - offsetX, targetY, hitPos.z - offsetZ);
@@ -214,29 +226,32 @@ namespace GameFramework.ECS.Systems
             return false;
         }
 
-        private bool PerformRaycast(CollisionWorld collisionWorld, float cellSize, out int3 gridPos)
+        // [关键修改] 射线检测逻辑
+        private bool PerformRaycast(CollisionWorld collisionWorld, PlacementType type, out int3 gridPos)
         {
             gridPos = int3.zero;
             UnityEngine.Ray unityRay = _mainCamera.ScreenPointToRay(Input.mousePosition);
-            // 增加射线长度，确保能检测到
-            RaycastInput raycastInput = new RaycastInput { Start = unityRay.origin, End = unityRay.origin + unityRay.direction * 5000f, Filter = CollisionFilter.Default };
+            RaycastInput rayInput = new RaycastInput { Start = unityRay.origin, End = unityRay.origin + unityRay.direction * 5000f, Filter = CollisionFilter.Default };
 
-            if (collisionWorld.CastRay(raycastInput, out RaycastHit hit))
+            if (collisionWorld.CastRay(rayInput, out RaycastHit hit))
             {
-                // [修改点 1] 严格检查：只有当击中的实体拥有 GridPositionComponent 组件时才视为有效
                 if (EntityManager.HasComponent<GridPositionComponent>(hit.Entity))
                 {
                     gridPos = EntityManager.GetComponentData<GridPositionComponent>(hit.Entity).Value;
-                    // 强制覆盖 Y 轴为当前的放置层级 (虽然是点击了格子，但放置逻辑可能在空中)
-                    gridPos.y = _currentPlacementLayer;
+
+                    // 如果是岛屿模式，我们是在空中画画，需要强制 Y 轴
+                    // 如果是建筑模式，我们点击的是已经显示出来的“可建造格子”，直接用它的 Y 轴即可
+                    if (type == PlacementType.Island)
+                    {
+                        gridPos.y = _currentPlacementLayer;
+                    }
                     return true;
                 }
-
-                // [修改点 1] 如果击中的是没有 Grid 组件的普通物体（如背景、未初始化的地面），直接忽略
-                // 之前的 float3 hitPoint = hit.Position... 逻辑已被移除
             }
             return false;
         }
+
+        // ... (SendPlacementRequest, CreatePreviewGameObject, UpdatePreviewTransform 等保持不变) ...
 
         private void SendPlacementRequest(int id, PlacementType type, int3 pos, int3 size, int rotation, int airSpace)
         {
@@ -251,7 +266,7 @@ namespace GameFramework.ECS.Systems
                 Size = size,
                 Rotation = finalRotation,
                 AirspaceHeight = airSpace,
-                RotationIndex = rotation // [新增] 传递旋转索引
+                RotationIndex = rotation
             });
             Debug.Log($"[Placement] 发送请求: {type} at {pos}");
         }
@@ -290,8 +305,6 @@ namespace GameFramework.ECS.Systems
             if (_previewObject == null) return;
             _previewObject.SetActive(true);
 
-            // [修改点 2] 不再手动计算偏移，而是调用 GridSystem 的接口
-            // 传入计算好的 逻辑锚点坐标(gridPos) 和 尺寸(size)
             float3 worldPos = _gridSystem.CalculateObjectCenterWorldPosition(gridPos, size);
 
             _previewObject.transform.position = worldPos;
@@ -324,13 +337,6 @@ namespace GameFramework.ECS.Systems
                     return iCfg != null ? new int3((int)iCfg.Length, (int)iCfg.Height, (int)iCfg.Width) : new int3(1, 1, 1);
             }
             return new int3(1, 1, 1);
-        }
-
-        private void ShowBridgeHints()
-        {
-            var bridgeableCells = _gridSystem.GetBridgeablePositions(Allocator.Temp);
-            // TODO: 调用可视化系统显示高亮
-            bridgeableCells.Dispose();
         }
     }
 }

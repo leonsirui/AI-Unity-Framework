@@ -9,7 +9,6 @@ using UnityEngine;
 
 namespace GameFramework.ECS.Systems
 {
-    // 定义 Tag 组件方便调试或查询
     public struct VisualGridTag : IComponentData { }
 
     [UpdateInGroup(typeof(PresentationSystemGroup))]
@@ -18,12 +17,12 @@ namespace GameFramework.ECS.Systems
         private GridSystem _gridSystem;
         private EntityFactory _entityFactory;
 
-        // 仅维护“当前可见”的网格实体列表
         private NativeList<Entity> _currentVisualEntities;
-
         private bool _isResourceLoaded = false;
 
-        // 记录当前显示的范围，用于去重判断 (-1, -1 表示当前未显示)
+        // [新增] 可视化模式枚举，用于状态管理
+        private enum VisMode { None, LayerRange, BuildableOnly }
+        private VisMode _currentMode = VisMode.None;
         private int2 _currentRange = new int2(-1, -1);
 
         private const int GRID_VIEW_ID = 9001;
@@ -32,10 +31,8 @@ namespace GameFramework.ECS.Systems
         protected override void OnCreate()
         {
             RequireForUpdate<GridConfigComponent>();
-
             _entityFactory = new EntityFactory(EntityManager);
             _currentVisualEntities = new NativeList<Entity>(Allocator.Persistent);
-
             LoadGridResource().Forget();
         }
 
@@ -46,12 +43,11 @@ namespace GameFramework.ECS.Systems
 
         private async UniTaskVoid LoadGridResource()
         {
-            // 仅预加载资源，不再触发生成
             var entity = await _entityFactory.LoadEntityArchetypeAsync(GRID_VIEW_ID, PREFAB_PATH);
             if (entity != Entity.Null)
             {
                 _isResourceLoaded = true;
-                Debug.Log("[GridVis] 网格资源加载就绪 (懒加载模式)");
+                // Debug.Log("[GridVis] 网格资源加载就绪");
             }
         }
 
@@ -62,80 +58,72 @@ namespace GameFramework.ECS.Systems
             _entityFactory.Dispose();
         }
 
-        protected override void OnUpdate()
+        protected override void OnUpdate() { }
+
+        /// <summary>
+        /// 模式A: 设置显示的层级范围 (用于放置岛屿)
+        /// </summary>
+        public void SetVisualizationRange(int yMin, int yMax)
         {
-            // [优化] 不再在 Update 中执行任何生成逻辑，完全由外部事件驱动
+            if (!CheckPrerequisites()) return;
+
+            // 如果是隐藏指令
+            if (yMin < 0 || yMax < 0)
+            {
+                ClearCurrentGrid();
+                _currentMode = VisMode.None;
+                _currentRange = new int2(-1, -1);
+                return;
+            }
+
+            // 状态去重
+            if (_currentMode == VisMode.LayerRange && _currentRange.x == yMin && _currentRange.y == yMax) return;
+
+            ClearCurrentGrid();
+            _currentMode = VisMode.LayerRange;
+            _currentRange = new int2(yMin, yMax);
+
+            GenerateGridInRange(yMin, yMax);
         }
 
         /// <summary>
-        /// 外部调用接口：设置显示的层级范围
+        /// 模式B: [新增] 显示所有可建造区域 (用于放置建筑)
+        /// 复刻项目1逻辑：不考虑高度层，显示所有 IsBuildable 的格子
         /// </summary>
-        /// <param name="yMin">起始高度 (包含)</param>
-        /// <param name="yMax">结束高度 (包含)</param>
-        /// <remarks>传入 (-1, -1) 或负数索引即可关闭显示并销毁实体</remarks>
-        public void SetVisualizationRange(int yMin, int yMax)
+        public void ShowBuildableGrids()
         {
-            // 1. 前置检查：资源和数据必须就绪
-            if (!_isResourceLoaded || _gridSystem == null || !_gridSystem.WorldGrid.IsCreated)
-            {
-                // 在游戏刚启动极短时间内按B可能会触发这里，属于正常现象
-                return;
-            }
+            if (!CheckPrerequisites()) return;
 
-            // 2. 状态去重：如果请求的范围和当前一致，直接跳过 (避免重复销毁重建导致的闪烁)
-            if (_currentRange.x == yMin && _currentRange.y == yMax) return;
+            // 状态去重
+            if (_currentMode == VisMode.BuildableOnly) return;
 
-            // 更新当前状态记录
-            _currentRange = new int2(yMin, yMax);
-
-            // 3. 核心逻辑：无论显示还是隐藏，先清理当前已有的实体
-            // 这种“全量销毁再生成”的策略在此时是最优解，因为 PlacementSystem 通常只显示一层，
-            // 实体数量较少 (100x100 = 1万个)，重建开销远小于维护 15万个隐藏实体的开销。
             ClearCurrentGrid();
+            _currentMode = VisMode.BuildableOnly;
+            _currentRange = new int2(-1, -1); // 重置层级记录
 
-            // 4. 如果是隐藏指令，清理完直接返回
-            if (yMin < 0 || yMax < 0)
-            {
-                // Debug.Log("[GridVis] 关闭网格显示");
-                return;
-            }
-
-            // 5. 生成新范围的网格
-            GenerateGridInRange(yMin, yMax);
+            GenerateBuildableGrids();
         }
+
+        private bool CheckPrerequisites()
+        {
+            return _isResourceLoaded && _gridSystem != null && _gridSystem.WorldGrid.IsCreated;
+        }
+
+        // --- 生成逻辑 ---
 
         private void GenerateGridInRange(int yMin, int yMax)
         {
             var config = SystemAPI.GetSingleton<GridConfigComponent>();
+            var boxGeometry = GetBoxGeometry(config);
 
-            // 估算容量，减少 List 扩容开销
-            int estimatedCount = config.Width * config.Length * (yMax - yMin + 1);
-            if (_currentVisualEntities.Capacity < estimatedCount)
-                _currentVisualEntities.Capacity = estimatedCount;
-
-            // 复用碰撞体参数
-            var boxGeometry = new BoxGeometry
-            {
-                Size = new float3(config.CellSize, 0.1f, config.CellSize),
-                Center = float3.zero,
-                Orientation = quaternion.identity
-            };
-
-            Debug.Log($"[GridVis] 生成网格层级: {yMin}-{yMax} (Count: {estimatedCount})");
-
-            // 仅遍历需要的高度层
             for (int y = yMin; y <= yMax; y++)
             {
-                // 安全检查：防止传入越界的层级
                 if (y >= config.Height) continue;
-
                 for (int x = 0; x < config.Width; x++)
                 {
                     for (int z = 0; z < config.Length; z++)
                     {
                         int3 gridPos = new int3(x, y, z);
-
-                        // 确保数据存在才生成
                         if (_gridSystem.WorldGrid.TryGetValue(gridPos, out GridCellData cellData))
                         {
                             SpawnSingleGridCell(cellData.WorldPosition, gridPos, boxGeometry);
@@ -145,12 +133,40 @@ namespace GameFramework.ECS.Systems
             }
         }
 
+        private void GenerateBuildableGrids()
+        {
+            var config = SystemAPI.GetSingleton<GridConfigComponent>();
+            var boxGeometry = GetBoxGeometry(config);
+            
+            // 遍历整个哈希表，寻找 IsBuildable = true 的格子
+            // 注意：这比遍历层级稍慢，但在 15万数据量级下 NativeHashMap 迭代非常快
+            foreach (var kvp in _gridSystem.WorldGrid)
+            {
+                var cellData = kvp.Value;
+                // 核心筛选逻辑：只显示可建造的
+                if (cellData.IsBuildable)
+                {
+                    SpawnSingleGridCell(cellData.WorldPosition, cellData.Position, boxGeometry);
+                }
+            }
+            Debug.Log($"[GridVis] 显示可建造区域，数量: {_currentVisualEntities.Length}");
+        }
+
+        private BoxGeometry GetBoxGeometry(GridConfigComponent config)
+        {
+            return new BoxGeometry
+            {
+                Size = new float3(2, 2, 0.1f),
+                Center = float3.zero,
+                Orientation = quaternion.identity
+            };
+        }
+
         private void SpawnSingleGridCell(float3 worldPos, int3 logicalPos, BoxGeometry colliderParams)
         {
-            // 既然是按需生成，这里直接 Scale = 1.0f (可见)
             Entity e = _entityFactory.SpawnColliderEntity(
                 GRID_VIEW_ID,
-                worldPos,
+                worldPos += new float3(0, -1, 0),
                 quaternion.RotateX(math.radians(90)),
                 colliderParams,
                 1.0f
@@ -158,11 +174,8 @@ namespace GameFramework.ECS.Systems
 
             if (e != Entity.Null)
             {
-                // 写入坐标数据供射线检测使用
                 EntityManager.AddComponentData(e, new GridPositionComponent { Value = logicalPos });
                 EntityManager.AddComponent<VisualGridTag>(e);
-
-                // 加入列表管理，以便后续销毁
                 _currentVisualEntities.Add(e);
             }
         }
@@ -171,7 +184,6 @@ namespace GameFramework.ECS.Systems
         {
             if (!_currentVisualEntities.IsEmpty)
             {
-                // 批量销毁，性能极高
                 EntityManager.DestroyEntity(_currentVisualEntities.AsArray());
                 _currentVisualEntities.Clear();
             }

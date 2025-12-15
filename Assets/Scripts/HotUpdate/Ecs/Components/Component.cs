@@ -122,4 +122,18 @@ namespace GameFramework.ECS.Components
     // 寻路代理标签：标记该单位具备寻路能力
     public struct PathfindingAgentTag : IComponentData { }
     #endregion
+
+    #region 建筑相关组件定义
+    /// <summary>
+    /// 建筑组件：标记该实体为建筑，并存储运行时数据
+    /// </summary>
+    public struct BuildingComponent : IComponentData
+    {
+        public int ConfigId;    // 对应配置表中的 ID
+        public int3 Size;       // 建筑尺寸 (x, y, z)
+        // 可以在此扩展其他数据，例如：
+        // public double ConstructionStartTime; // 建造开始时间
+        // public BuildingState State;          // 建造状态 (Building, Completed)
+    }
+    #endregion
 }
