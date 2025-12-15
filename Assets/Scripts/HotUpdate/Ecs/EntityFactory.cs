@@ -28,6 +28,14 @@ namespace GameFramework.ECS
             _entityPrefabCache.Clear();
         }
 
+        // =========================================================
+        // 【新增】查询接口，用于系统判断是否需要触发异步加载
+        // =========================================================
+        public bool HasEntity(int configId)
+        {
+            return _entityPrefabCache.ContainsKey(configId);
+        }
+
         #region 核心资源加载与原型构建
 
         /// <summary>
@@ -70,7 +78,7 @@ namespace GameFramework.ECS
         // 在 EntityFactory.cs 中
         // 确保引入命名空间
 
-        public Entity SpawnColliderEntity(int configId, float3 position, quaternion rotation, Unity.Physics.BoxGeometry ccb, float scale = 1f)
+        public Entity SpawnColliderEntity(int configId, float3 position, quaternion rotation, BoxGeometry ccb, float scale = 1f)
         {
             if (!_entityPrefabCache.TryGetValue(configId, out Entity prefabEntity))
             {
@@ -80,7 +88,7 @@ namespace GameFramework.ECS
 
             // 1. 创建碰撞体数据
             // 【重要提示】请确保 ccb.Size 不是 (0,0,0)，否则碰撞盒是无限小的，看不到也摸不着
-            BlobAssetReference<Unity.Physics.Collider> colliderBlob = Unity.Physics.BoxCollider.Create(ccb, Unity.Physics.CollisionFilter.Default);
+            BlobAssetReference<Unity.Physics.Collider> colliderBlob = Unity.Physics.BoxCollider.Create(ccb, CollisionFilter.Default);
 
             // 2. 实例化实体
             Entity newEntity = _entityManager.Instantiate(prefabEntity);
@@ -94,7 +102,7 @@ namespace GameFramework.ECS
             });
 
             // 4. 添加 PhysicsCollider 组件
-            _entityManager.AddComponentData(newEntity, new Unity.Physics.PhysicsCollider { Value = colliderBlob });
+            _entityManager.AddComponentData(newEntity, new PhysicsCollider { Value = colliderBlob });
 
             // =========================================================================================
             // 【核心修复】必须添加 PhysicsWorldIndex，否则物理系统会忽略它！

@@ -248,7 +248,8 @@ namespace GameFramework.ECS.Systems
                 Type = type,
                 Size = size,
                 Rotation = finalRotation,
-                AirspaceHeight = airSpace
+                AirspaceHeight = airSpace,
+                RotationIndex = rotation // [新增] 传递旋转索引
             });
             Debug.Log($"[Placement] 发送请求: {type} at {pos}");
         }

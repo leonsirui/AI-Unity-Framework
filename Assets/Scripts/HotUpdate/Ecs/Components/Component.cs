@@ -37,16 +37,6 @@ namespace GameFramework.ECS.Components
     // [标签] 用于标记桥梁提示的格子实体
     public struct BridgeHintTag : IComponentData { }
 
-
-
-
-
-
-
-
-
-
-
     public struct GridPositionComponent : IComponentData
     {
         public int3 Value; // 格子的逻辑坐标 (x, y, z)
@@ -91,11 +81,13 @@ namespace GameFramework.ECS.Components
     public struct PlaceObjectRequest : IComponentData
     {
         public int ObjectId;
-        public int3 Position;      // 网格坐标
-        public PlacementType Type; // 类型
-        public int3 Size;          // 实际占用尺寸
+        public int3 Position;
+        public PlacementType Type;
+        public int3 Size;
         public quaternion Rotation;
         public int AirspaceHeight;
+
+        public int RotationIndex; // [新增] 旋转索引 (0,1,2,3)，用于计算网格逻辑坐标
     }
 
     // 3. 资源引用组件 (告诉可视化系统加载什么)

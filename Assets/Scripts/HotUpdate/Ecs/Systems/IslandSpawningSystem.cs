@@ -6,15 +6,14 @@ using System.Collections.Generic;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
-using Unity.Physics; // 必须引用物理命名空间
+using Unity.Physics;
 using Unity.Transforms;
 using UnityEngine;
 
 namespace GameFramework.ECS.Systems
 {
     /// <summary>
-    /// 岛屿生成系统 (纯ECS版)
-    /// 功能：消费放置请求 -> 确保资源加载 -> 通过工厂生成带渲染和碰撞的实体 -> 注册网格
+    /// 岛屿生成系统 (修复重叠问题版)
     /// </summary>
     [UpdateInGroup(typeof(SimulationSystemGroup))]
     public partial class IslandSpawningSystem : SystemBase
@@ -23,13 +22,12 @@ namespace GameFramework.ECS.Systems
         private EntityFactory _entityFactory;
         private GridConfigComponent _gridConfig;
 
-        // 用于防止重复触发加载的简单缓存 Set
+        // 防止资源正在加载时重复提交的简单锁
         private HashSet<int> _loadingAssets = new HashSet<int>();
 
         protected override void OnCreate()
         {
             base.OnCreate();
-            // 初始化实体工厂
             _entityFactory = new EntityFactory(EntityManager);
             RequireForUpdate<GridConfigComponent>();
         }
@@ -48,12 +46,9 @@ namespace GameFramework.ECS.Systems
 
         protected override void OnUpdate()
         {
-            // 1. 获取所有放置请求
-            // 使用 EntityQuery 获取实体，以便我们可以选择性地销毁它们
             var query = SystemAPI.QueryBuilder().WithAll<PlaceObjectRequest>().Build();
             if (query.IsEmpty) return;
 
-            // 转换为数组进行遍历 (Structural Changes 必须在主线程且不能在Query迭代中进行)
             var requestEntities = query.ToEntityArray(Allocator.Temp);
             var requests = query.ToComponentDataArray<PlaceObjectRequest>(Allocator.Temp);
 
@@ -64,23 +59,42 @@ namespace GameFramework.ECS.Systems
 
                 if (req.Type == PlacementType.Island)
                 {
-                    // 尝试生成岛屿
-                    bool success = TrySpawnIsland(req);
+                    // [关键修复 Step 1] 再次检查位置是否合法
+                    // 虽然 PlacementSystem 可能检查过，但为了数据安全，生成前必须最后确认一次
+                    // 如果此时返回 false，说明这个位置刚刚已经被占用了
+                    if (!_gridSystem.CheckIslandPlacement(req.Position, req.Size, req.AirspaceHeight))
+                    {
+                        Debug.LogWarning($"[IslandSpawningSystem] 拒绝生成：位置 {req.Position} 已被占用");
+                        EntityManager.DestroyEntity(entity); // 直接销毁无效请求
+                        continue;
+                    }
+
+                    // 尝试生成实体
+                    bool success = TrySpawnIsland(req, out Entity spawnedEntity);
 
                     if (success)
                     {
-                        // 成功生成，销毁请求
+                        // 获取配置数据
+                        var islandConfig = ConfigManager.Instance.Tables.IslandCfg.Get(req.ObjectId);
+
+                        if (islandConfig != null)
+                        {
+                            // 调用新的注册接口，传入 Config 和 RotationIndex
+                            _gridSystem.RegisterIsland(req.Position, islandConfig, req.RotationIndex);
+                        }
+
                         EntityManager.DestroyEntity(entity);
                     }
                     else
                     {
-                        // 未成功（通常是因为资源还在加载），保留请求实体，下一帧重试
-                        // 注意：这里什么都不做，实体留存
+                        // 如果返回 false，通常是因为资源正在异步加载中
+                        // 我们保留这个请求实体（不销毁），下一帧继续尝试
+                        // 注意：为了防止每一帧都触发加载，TrySpawnIsland 内部有 _loadingAssets 缓存判断
                     }
                 }
                 else
                 {
-                    // 非岛屿类型，暂时销毁或交给其他系统处理
+                    // 其他类型的处理（如建筑），暂时略过或销毁
                     EntityManager.DestroyEntity(entity);
                 }
             }
@@ -92,9 +106,12 @@ namespace GameFramework.ECS.Systems
         /// <summary>
         /// 尝试生成岛屿实体
         /// </summary>
-        /// <returns>如果是 true 表示处理完毕（无论成功失败都销毁请求）；如果 false 表示资源未就绪，需等待</returns>
-        private bool TrySpawnIsland(PlaceObjectRequest req)
+        /// <param name="spawnedEntity">输出生成的实体</param>
+        /// <returns>如果是 true 表示生成成功；如果 false 表示资源未就绪，需等待</returns>
+        private bool TrySpawnIsland(PlaceObjectRequest req, out Entity spawnedEntity)
         {
+            spawnedEntity = Entity.Null;
+
             // A. 获取配置
             string resourcePath = "";
             if (ConfigManager.Instance.Tables != null)
@@ -105,69 +122,56 @@ namespace GameFramework.ECS.Systems
 
             if (string.IsNullOrEmpty(resourcePath))
             {
-                Debug.LogError($"[IslandSystem] 配置无效 ID: {req.ObjectId}");
-                return true; // 视为处理完毕（失败）
+                Debug.LogError($"配置无效 ID: {req.ObjectId}");
+                return true; // 视为失败但已处理（配置错误无法重试）
             }
 
-            // B. 尝试生成 (检查工厂缓存)
-            // 我们构建一个物理几何体参数
+            // B. 计算物理参数
             float cellSize = _gridConfig.CellSize > 0 ? _gridConfig.CellSize : 1f;
-
-            // 计算碰撞盒尺寸：逻辑尺寸 * 格子大小
             float3 colliderSize = new float3(req.Size.x, req.Size.y, req.Size.z) * cellSize;
 
-            // 构建 BoxGeometry
-            // Center 设置为 0，因为 GridSystem.GridToWorldPosition 返回的是物体中心点
-            // EntityFactory 会将实体放置在中心点，所以碰撞体相对于实体中心应该是 0
             var boxGeometry = new BoxGeometry
             {
                 Center = float3.zero,
                 Orientation = quaternion.identity,
                 Size = colliderSize,
-                BevelRadius = 0f // 可选：倒角
+                BevelRadius = 0f
             };
 
-            // 计算世界坐标
+            // 使用 GridSystem 的转换方法确保对齐一致
             float3 worldPos = _gridSystem.GridToWorldPosition(req.Position, req.Size);
 
-            // 调用工厂方法生成
-            Entity islandEntity = _entityFactory.SpawnColliderEntity(
+            // C. 调用工厂生成
+            spawnedEntity = _entityFactory.SpawnColliderEntity(
                 req.ObjectId,
                 worldPos,
                 req.Rotation,
                 boxGeometry
             );
 
-            // C. 结果处理
-            if (islandEntity == Entity.Null)
+            // D. 结果处理
+            if (spawnedEntity == Entity.Null)
             {
                 // 工厂返回 Null 说明原型还没加载
                 if (!_loadingAssets.Contains(req.ObjectId))
                 {
                     _loadingAssets.Add(req.ObjectId);
-                    Debug.Log($"[IslandSystem] 资源未加载，触发异步加载: {resourcePath}");
+                    // 触发异步加载，不阻塞主线程
                     LoadAssetAndCleanState(req.ObjectId, resourcePath).Forget();
                 }
-                // 返回 false，保留请求，下一帧再试
+                // 返回 false，请求实体会被保留，等待下一帧重试
                 return false;
             }
 
-            // D. 实体生成成功，追加游戏逻辑组件
-            EntityManager.AddComponentData(islandEntity, new GridPositionComponent { Value = req.Position });
-            EntityManager.AddComponentData(islandEntity, new IslandComponent
+            // E. 实体生成成功，添加组件
+            EntityManager.AddComponentData(spawnedEntity, new GridPositionComponent { Value = req.Position });
+            EntityManager.AddComponentData(spawnedEntity, new IslandComponent
             {
                 ConfigId = req.ObjectId,
                 Size = req.Size,
                 AirSpace = req.AirspaceHeight
             });
 
-            // 可选：添加 Tag 组件方便查询
-            // EntityManager.AddComponent<IslandTag>(islandEntity);
-
-            // E. 注册网格占用
-            //_gridSystem.SetIslandOccupancy(islandEntity, req.Position, req.Size, true);
-
-            Debug.Log($"[IslandSystem] 纯ECS实体生成完毕: Index={islandEntity.Index}");
             return true;
         }
 
@@ -175,7 +179,7 @@ namespace GameFramework.ECS.Systems
         {
             await _entityFactory.LoadEntityArchetypeAsync(id, path);
             _loadingAssets.Remove(id);
-            // 加载完成后，下一帧的 OnUpdate 循环会再次尝试 TrySpawnIsland，这次就会成功
+            // 加载完成后，_loadingAssets 解锁，下一帧 Update 循环会再次尝试生成，这次就会从工厂缓存中拿到实体
         }
     }
 }

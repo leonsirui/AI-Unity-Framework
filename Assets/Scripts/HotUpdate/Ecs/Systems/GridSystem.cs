@@ -1,5 +1,5 @@
+using cfg;
 using System.Collections.Generic;
-using System.Linq;
 using GameFramework.ECS.Components;
 using Unity.Burst;
 using Unity.Collections;
@@ -11,7 +11,7 @@ using Random = Unity.Mathematics.Random;
 namespace GameFramework.ECS.Systems
 {
     /// <summary>
-    /// 网格核心系统 (ECS版)
+    /// 网格核心系统 (ECS版 - 集成配置表与状态系统)
     /// 负责：全局网格数据维护、注册/注销逻辑、寻路算法、坐标转换
     /// </summary>
     [UpdateInGroup(typeof(SimulationSystemGroup), OrderFirst = true)]
@@ -84,69 +84,135 @@ namespace GameFramework.ECS.Systems
                             IslandID = "",
                             BuildingID = "",
                             IsMovable = false,
-                            IsBuildable = false
+                            IsBuildable = false,
+                            IsBridgeable = false // 默认为不可造桥
                         };
                         WorldGrid.TryAdd(gridKey, data);
                     }
                 }
             }
+            Debug.Log($"[GridSystem] 网格数据初始化完成，共 {WorldGrid.Count()} 个格子");
         }
 
         // ===========================================================================================
-        // 2. 核心注册/注销逻辑
+        // 2. 核心注册/注销逻辑 (支持配置表)
         // ===========================================================================================
 
         /// <summary>
-        /// 注册岛屿
+        /// 注册岛屿占用 (支持配置表数据和旋转)
         /// </summary>
-        public bool RegisterIsland(int3 pos, int3 size, int airspace, FixedString64Bytes islandId)
+        /// <param name="anchorPos">锚点位置</param>
+        /// <param name="config">岛屿配置数据</param>
+        /// <param name="rotationIndex">旋转角度索引 (0=0°, 1=90°, 2=180°, 3=270°)</param>
+        public bool RegisterIsland(int3 anchorPos, Island_Config config, int rotationIndex)
         {
             if (!WorldGrid.IsCreated) return false;
 
-            // 使用严格检测逻辑
-            if (!CheckIslandPlacement(pos, size, airspace)) return false;
+            // 1. 计算旋转后的尺寸
+            int3 originalSize = new int3(config.Length, config.Height, config.Width);
+            // 如果旋转 90 或 270 度，交换 长(X) 和 宽(Z)
+            int3 finalSize = (rotationIndex % 2 == 1)
+                ? new int3(originalSize.z, originalSize.y, originalSize.x)
+                : originalSize;
 
-            // 计算起始位置 (实体底部)
-            int3 startPos = new int3(pos.x, pos.y - size.y + 1, pos.z);
+            // 2. 严格检测：确保位置合法且未被占用
+            if (!CheckIslandPlacement(anchorPos, finalSize, config.AirHeight))
+            {
+                Debug.LogWarning($"[GridSystem] 岛屿注册失败: 位置 {anchorPos} 无效或已被占用。");
+                return false;
+            }
 
-            // A. 设置岛屿本体
-            for (int x = 0; x < size.x; x++)
-                for (int z = 0; z < size.z; z++)
-                    for (int h = 0; h < size.y; h++)
+            FixedString64Bytes islandId = new FixedString64Bytes(config.Id.ToString());
+
+            // 3. 基础占用设置 (设置岛屿本体和空域类型)
+            // 实体底部 = 锚点Y - 高度 + 1
+            int3 startPos = new int3(anchorPos.x, anchorPos.y - finalSize.y + 1, anchorPos.z);
+
+            // A. 设置岛屿本体 (GridType.Island)
+            for (int x = 0; x < finalSize.x; x++)
+            {
+                for (int z = 0; z < finalSize.z; z++)
+                {
+                    for (int h = 0; h < finalSize.y; h++)
                     {
-                        UpdateCell(startPos + new int3(x, h, z), (ref GridCellData data) => {
+                        int3 currentPos = new int3(startPos.x + x, startPos.y + h, startPos.z + z);
+                        UpdateCell(currentPos, (ref GridCellData data) => {
                             data.Type = GridType.Island;
                             data.IslandID = islandId;
+                            // 默认先全部重置，稍后根据配置开启
+                            data.IsMovable = false;
+                            data.IsBuildable = false;
+                            data.IsBridgeable = false;
                         });
                     }
+                }
+            }
 
-            // B. 设置空域 (从锚点上方开始)
-            for (int x = 0; x < size.x; x++)
-                for (int z = 0; z < size.z; z++)
-                    for (int h = 1; h <= airspace; h++)
-                    {
-                        UpdateCell(pos + new int3(x, h, z), (ref GridCellData data) => {
+            // B. 设置空域 (GridType.IslandAirspace)
+            for (int x = 0; x < finalSize.x; x++)
+                for (int z = 0; z < finalSize.z; z++)
+                    for (int h = 1; h <= config.AirHeight; h++)
+                        UpdateCell(anchorPos + new int3(x, h, z), (ref GridCellData data) => {
                             data.Type = GridType.IslandAirspace;
                             data.IslandID = islandId;
                         });
-                    }
 
-            // C. 设置表面 (假设锚点上方一格为表面)
-            for (int x = 0; x < size.x; x++)
-                for (int z = 0; z < size.z; z++)
+            // 4. 应用配置表中的特殊区域 (BuildArea 和 AttachmentPoint)
+            // 假设表面层位于锚点上方第一层 (anchor.y + 1)
+            // 注意：这里我们只处理表面那一层的数据
+            int surfaceY = anchorPos.y + 1; // 表面高度
+
+            // C. 处理可建造区域 (BuildArea) -> 可移动 + 可建造
+            if (config.BuildArea != null)
+            {
+                foreach (var coord in config.BuildArea)
                 {
-                    UpdateCell(pos + new int3(x, 1, z), (ref GridCellData data) => {
+                    if (coord.Count < 2) continue;
+                    // 读取局部坐标 (原始未旋转)
+                    int localX = coord[0];
+                    int localZ = coord[1];
+
+                    // 计算旋转后的偏移
+                    int2 rotatedOffset = RotateCoordinate(localX, localZ, rotationIndex, config.Length, config.Width);
+
+                    // 计算世界网格坐标
+                    int3 targetPos = anchorPos + new int3(rotatedOffset.x, 1, rotatedOffset.y); // 注意：这里相对锚点的偏移是 (x, 1, z)
+
+                    UpdateCell(targetPos, (ref GridCellData data) => {
                         data.IsMovable = true;
                         data.IsBuildable = true;
                     });
                 }
+            }
+
+            // D. 处理附着点 (AttachmentPoint) -> 可造桥
+            if (config.AttachmentPoint != null)
+            {
+                foreach (var coord in config.AttachmentPoint)
+                {
+                    if (coord.Count < 2) continue;
+                    int localX = coord[0];
+                    int localZ = coord[1];
+
+                    int2 rotatedOffset = RotateCoordinate(localX, localZ, rotationIndex, config.Length, config.Width);
+                    int3 targetPos = anchorPos + new int3(rotatedOffset.x, 1, rotatedOffset.y);
+
+                    UpdateCell(targetPos, (ref GridCellData data) => {
+                        data.IsBridgeable = true;
+                        // 附着点通常是连接点，所以也应该允许 NPC 移动上去
+                        data.IsMovable = true;
+                    });
+                }
+            }
+
+            Debug.Log($"[GridSystem] 岛屿 {config.Id} 注册成功 @ {anchorPos}，方向 {rotationIndex}");
             return true;
         }
 
-        public bool UnregisterIsland(int3 pos, int3 size, int airspace, FixedString64Bytes islandId)
+        public bool UnregisterIsland(int3 anchorPos, int3 size, int airspace, FixedString64Bytes islandId)
         {
             if (!WorldGrid.IsCreated) return false;
-            int3 startPos = new int3(pos.x, pos.y - size.y + 1, pos.z);
+            int3 startPos = new int3(anchorPos.x, anchorPos.y - size.y + 1, anchorPos.z);
 
             // 清理本体
             for (int x = 0; x < size.x; x++)
@@ -158,15 +224,18 @@ namespace GameFramework.ECS.Systems
             for (int x = 0; x < size.x; x++)
                 for (int z = 0; z < size.z; z++)
                     for (int h = 1; h <= airspace; h++)
-                        ResetCellIfMatch(pos + new int3(x, h, z), islandId);
+                        ResetCellIfMatch(anchorPos + new int3(x, h, z), islandId);
 
-            // 清理表面属性
+            // 清理表面属性 (简单暴力重置，不再细分BuildArea)
+            // 实际项目中可能需要更精细的还原
             for (int x = 0; x < size.x; x++)
                 for (int z = 0; z < size.z; z++)
                 {
-                    UpdateCell(pos + new int3(x, 1, z), (ref GridCellData data) => {
+                    int3 surfacePos = anchorPos + new int3(x, 1, z);
+                    UpdateCell(surfacePos, (ref GridCellData data) => {
                         data.IsMovable = false;
                         data.IsBuildable = false;
+                        data.IsBridgeable = false;
                     });
                 }
             return true;
@@ -189,6 +258,7 @@ namespace GameFramework.ECS.Systems
                             data.BuildingID = buildingId;
                             data.IsMovable = false;
                             data.IsBuildable = false;
+                            // 建筑占据后，通常不再作为造桥点，除非有特殊设计
                         });
                     }
             return true;
@@ -204,10 +274,12 @@ namespace GameFramework.ECS.Systems
                         if (WorldGrid.TryGetValue(current, out GridCellData cell) && cell.BuildingID == buildingId)
                         {
                             UpdateCell(current, (ref GridCellData data) => {
+                                // 恢复为 Space (或根据层级恢复为 Island 表面)
+                                // 这是一个简化处理，理想情况应该知道底下是什么
                                 data.Type = GridType.Space;
                                 data.BuildingID = "";
-                                data.IsMovable = true; // 恢复可行走
-                                data.IsBuildable = true; // 恢复可建造
+                                data.IsMovable = true;
+                                data.IsBuildable = true;
                             });
                         }
                     }
@@ -224,26 +296,10 @@ namespace GameFramework.ECS.Systems
             UpdateCell(pos, (ref GridCellData data) => {
                 data.Type = GridType.PublicBridge;
                 data.BuildingID = bridgeId;
-                data.IsMovable = true;
+                data.IsMovable = true; // 桥梁必定可行走
                 data.IsBuildable = false;
             });
             return true;
-        }
-
-        public bool UnregisterBridge(int3 pos, FixedString64Bytes bridgeId)
-        {
-            if (!WorldGrid.TryGetValue(pos, out GridCellData cell)) return false;
-            if (cell.BuildingID == bridgeId)
-            {
-                UpdateCell(pos, (ref GridCellData data) => {
-                    data.Type = GridType.Space;
-                    data.BuildingID = "";
-                    data.IsMovable = false;
-                    data.IsBuildable = false;
-                });
-                return true;
-            }
-            return false;
         }
 
         // ===========================================================================================
@@ -251,28 +307,20 @@ namespace GameFramework.ECS.Systems
         // ===========================================================================================
 
         /// <summary>
-        /// 检查岛屿放置是否合法 (核心逻辑：检查包含底部延伸的整个包围盒)
+        /// 检查岛屿放置是否合法
         /// </summary>
         public bool CheckIslandPlacement(int3 anchorPos, int3 size, int airspace)
         {
-            // 实体底部 = 锚点Y - 高度 + 1
+            if (!WorldGrid.IsCreated) return false;
+
+            // 实体底部
             int3 bodyBottom = new int3(anchorPos.x, anchorPos.y - size.y + 1, anchorPos.z);
-            // 整体最高点 = 锚点Y + 空域
+            // 整体最高点
             int3 totalTop = new int3(anchorPos.x + size.x - 1, anchorPos.y + airspace, anchorPos.z + size.z - 1);
 
-            // 1. 边界检查：防止底部超出网格下界
             if (!IsInGridRange(bodyBottom, totalTop)) return false;
 
-            // 2. 占用检查：整个区域必须是 Space
             return CheckAreaType(bodyBottom, totalTop, GridType.Space);
-        }
-
-        /// <summary>
-        /// 简易岛屿检测 (兼容旧逻辑)
-        /// </summary>
-        public bool IsIslandBuildable(int3 start, int3 end)
-        {
-            return IsInGridRange(start, end) && CheckAreaType(start, end, GridType.Space);
         }
 
         public bool IsBuildingBuildable(int3 start, int3 end)
@@ -289,19 +337,24 @@ namespace GameFramework.ECS.Systems
             return true;
         }
 
+        /// <summary>
+        /// 判断是否可造桥
+        /// </summary>
         public bool IsBridgeBuildable(int3 pos)
         {
-            return IsValidPosition(pos) && WorldGrid.TryGetValue(pos, out GridCellData cell) && cell.Type == GridType.Space;
-        }
+            if (!IsValidPosition(pos)) return false;
 
-        public bool HasBuildablePosition(PlacementType type)
-        {
-            foreach (var kvp in WorldGrid)
+            if (WorldGrid.TryGetValue(pos, out GridCellData cell))
             {
-                var cell = kvp.Value;
-                if (type == PlacementType.Building && cell.IsBuildable) return true;
-                if (type == PlacementType.Bridge && cell.Type == GridType.Space) return true;
-                if (type == PlacementType.Island) return true;
+                // 1. 如果已被占用且不是 Space，则不能造桥 (除非它是特殊的附着点且未造过东西，但通常占用后即不可造)
+                // 这里逻辑：如果已经被建筑占了，肯定不能造
+                if (cell.BuildingID != "") return false;
+
+                // 2. 如果是附着点，允许
+                if (cell.IsBridgeable) return true;
+
+                // 3. 如果是完全空的 Space (水面/空中)，也允许
+                if (cell.Type == GridType.Space) return true;
             }
             return false;
         }
@@ -313,9 +366,19 @@ namespace GameFramework.ECS.Systems
             {
                 var pos = kvp.Key;
                 var cell = kvp.Value;
-                if (cell.Type == GridType.Space && !cell.IsMovable && HasMovableNeighbor(pos))
+                // 寻找潜在造桥点：
+                // A. 显式附着点且未被占用
+                // B. 或者是空的 Space 且旁边有可移动区域 (桥梁延伸)
+                if (cell.BuildingID == "")
                 {
-                    results.Add(cell);
+                    if (cell.IsBridgeable)
+                    {
+                        results.Add(cell);
+                    }
+                    else if (cell.Type == GridType.Space && HasMovableNeighbor(pos))
+                    {
+                        results.Add(cell);
+                    }
                 }
             }
             return results;
@@ -339,10 +402,44 @@ namespace GameFramework.ECS.Systems
             return IsValidPosition(start) && IsValidPosition(end);
         }
 
-        public float3 GridToWorldPosition(int3 gridPos)
+        /// <summary>
+        /// 辅助：计算旋转后的局部坐标
+        /// </summary>
+        /// <param name="x">原始X</param>
+        /// <param name="z">原始Z</param>
+        /// <param name="rotation">旋转次数 (0,1,2,3)</param>
+        /// <param name="originalXSize">原始长度</param>
+        /// <param name="originalZSize">原始宽度</param>
+        private int2 RotateCoordinate(int x, int z, int rotation, int originalXSize, int originalZSize)
+        {
+            int w = originalXSize;
+            int h = originalZSize;
+
+            switch (rotation % 4)
+            {
+                case 0: return new int2(x, z);                 // 0度
+                case 1: return new int2(z, w - 1 - x);         // 90度
+                case 2: return new int2(w - 1 - x, h - 1 - z); // 180度
+                case 3: return new int2(h - 1 - z, x);         // 270度
+                default: return new int2(x, z);
+            }
+        }
+
+        public float3 GridToWorldPosition(int3 gridPos, int3 size)
         {
             if (!SystemAPI.HasSingleton<GridConfigComponent>()) return float3.zero;
-            return new float3(gridPos.x, gridPos.y, gridPos.z) * SystemAPI.GetSingleton<GridConfigComponent>().CellSize;
+            float cellSize = SystemAPI.GetSingleton<GridConfigComponent>().CellSize;
+
+            float x = gridPos.x * cellSize + (size.x * cellSize * 0.5f) - (cellSize * 0.5f);
+            float y = gridPos.y * cellSize;
+            float z = gridPos.z * cellSize + (size.z * cellSize * 0.5f) - (cellSize * 0.5f);
+
+            return new float3(x, y, z);
+        }
+
+        public float3 GridToWorldPosition(int3 gridPos)
+        {
+            return GridToWorldPosition(gridPos, new int3(1, 1, 1));
         }
 
         public int3 WorldToGridPosition(float3 worldPos)
@@ -352,34 +449,15 @@ namespace GameFramework.ECS.Systems
             return new int3((int)math.round(worldPos.x / cellSize), (int)math.round(worldPos.y / cellSize), (int)math.round(worldPos.z / cellSize));
         }
 
-        public float3 CalculateRegionCenter(int3 startGridPos, int3 endGridPos)
-        {
-            float3 p1 = GridToWorldPosition(startGridPos);
-            float3 p2 = GridToWorldPosition(endGridPos);
-            return (p1 + p2) * 0.5f;
-        }
-
-        public int3 GetRandomWalkablePosition(int3 center, int radius)
-        {
-            for (int i = 0; i < 10; i++)
-            {
-                int3 offset = new int3(_random.NextInt(-radius, radius), 0, _random.NextInt(-radius, radius));
-                int3 target = center + offset;
-                if (WorldGrid.TryGetValue(target, out GridCellData cell) && cell.IsMovable)
-                {
-                    return target;
-                }
-            }
-            return center;
-        }
-
         // ===========================================================================================
         // 5. A* 寻路
         // ===========================================================================================
         public List<int3> FindPath(int3 start, int3 end)
         {
             if (!IsValidPosition(start) || !IsValidPosition(end)) return null;
-            if (!WorldGrid[start].IsMovable || !WorldGrid[end].IsMovable) return null;
+
+            if (!WorldGrid.TryGetValue(start, out GridCellData startCell) || !startCell.IsMovable) return null;
+            if (!WorldGrid.TryGetValue(end, out GridCellData endCell) || !endCell.IsMovable) return null;
 
             var openSet = new List<int3> { start };
             var cameFrom = new Dictionary<int3, int3>();
@@ -428,6 +506,9 @@ namespace GameFramework.ECS.Systems
                 UpdateCell(pos, (ref GridCellData data) => {
                     data.Type = GridType.Space;
                     data.IslandID = "";
+                    data.IsMovable = false;
+                    data.IsBuildable = false;
+                    data.IsBridgeable = false;
                 });
             }
         }
@@ -492,46 +573,6 @@ namespace GameFramework.ECS.Systems
             path.Reverse();
             return path;
         }
-
-        /// <summary>
-        /// 将网格坐标转换为世界坐标 (中心点对齐)
-        /// </summary>
-        public Vector3 GridToWorldPosition(int3 gridPos, int3 size)
-        {
-            var config = SystemAPI.GetSingleton<GridConfigComponent>();
-            float cellSize = config.CellSize;
-
-            // 计算几何中心
-            float x = gridPos.x * cellSize + (size.x * cellSize * 0.5f) - (cellSize * 0.5f);
-            float y = gridPos.y * cellSize;
-            float z = gridPos.z * cellSize + (size.z * cellSize * 0.5f) - (cellSize * 0.5f);
-
-            return new Vector3(x, y, z);
-        }
-
-        /// <summary>
-        /// 注册岛屿占用
-        /// </summary>
-        public void SetIslandOccupancy(int3 startPos, int3 size, int airSpace, bool isOccupied)
-        {
-            // 遍历岛屿占据的所有格子并设置状态
-            for (int x = 0; x < size.x; x++)
-            {
-                for (int z = 0; z < size.z; z++)
-                {
-                    // 岛屿通常占据多层高度 (从 startPos.y 向下 或者 包含 airSpace)
-                    // 这里根据项目1逻辑：startPos 是锚点，通常是顶部或底部，需确认坐标系
-                    // 假设 startPos.y 是岛屿的"表面"高度
-
-                    int targetX = startPos.x + x;
-                    int targetZ = startPos.z + z;
-
-                    // 标记 GridData (你需要根据你的 GridData 结构实现具体逻辑)
-                    // SetGridState(targetX, startPos.y, targetZ, GridState.Occupied);
-                }
-            }
-            Debug.Log($"[GridSystem] Grid Updated for Island at {startPos}");
-        }
     }
 
     public struct GridCellData
@@ -541,8 +582,11 @@ namespace GameFramework.ECS.Systems
         public GridType Type;
         public FixedString64Bytes IslandID;
         public FixedString64Bytes BuildingID;
-        public bool IsMovable;
-        public bool IsBuildable;
+
+        // 状态标志位
+        public bool IsMovable;    // 是否可行走
+        public bool IsBuildable;  // 是否可建造建筑
+        public bool IsBridgeable; // [新增] 是否可建造桥梁 (岛屿附着点)
     }
 
     public enum GridType : byte
