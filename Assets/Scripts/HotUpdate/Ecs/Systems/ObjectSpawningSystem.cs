@@ -122,6 +122,39 @@ namespace GameFramework.ECS.Systems
                             Size = req.Size
                         });
 
+                        // ================== [新增] 根据 FunctionType 挂载功能组件 ==================
+                        if (ConfigManager.Instance.Tables != null)
+                        {
+                            var config = ConfigManager.Instance.Tables.BuildingCfg.Get(req.ObjectId);
+                            if (config != null)
+                            {
+                                switch (config.FunctionType)
+                                {
+                                    // 对应 building.FunctionType.VisitorCenter (枚举值 1)
+                                    case cfg.building.FunctionType.VisitorCenter:
+                                        EntityManager.AddComponentData(spawnedEntity, new VisitorCenterComponent
+                                        {
+                                            UnspawnedVisitorCount = 5,  // 初始给 5 个待生成名额用于测试
+                                            SpawnInterval = 2.0f,       // 每 2 秒生成一个
+                                            SpawnTimer = 0f
+                                        });
+                                        Debug.Log($"[Spawning] 已为建筑 {req.ObjectId} 挂载 '游客中心' 组件");
+                                        break;
+
+                                    // 对应 building.FunctionType.Airport (枚举值 2)
+                                    case cfg.building.FunctionType.Airport:
+                                        // 未来实现: EntityManager.AddComponentData(spawnedEntity, new AirportComponent {...});
+                                        Debug.Log($"[Spawning] 这是一个航站楼，尚未实现功能组件");
+                                        break;
+
+                                    // 对应 building.FunctionType.Shop (枚举值 3)
+                                    case cfg.building.FunctionType.Shop:
+                                        // 未来实现...
+                                        break;
+                                }
+                            }
+                        }
+
                         Debug.Log($"[Spawning] 建筑生成成功 ID:{req.ObjectId} @ {req.Position}");
                         isProcessed = true;
                     }

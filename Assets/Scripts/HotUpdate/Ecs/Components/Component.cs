@@ -112,13 +112,6 @@ namespace GameFramework.ECS.Components
         public bool IsPending; // 标记是否等待处理
     }
 
-    // 路径缓冲区：存储计算出的路径结果
-    [InternalBufferCapacity(50)] // 预设容量，超过会自动分配堆内存
-    public struct PathBufferElement : IBufferElementData
-    {
-        public int3 Position;
-    }
-
     // 寻路代理标签：标记该单位具备寻路能力
     public struct PathfindingAgentTag : IComponentData { }
     #endregion
@@ -135,6 +128,17 @@ namespace GameFramework.ECS.Components
         // public double ConstructionStartTime; // 建造开始时间
         // public BuildingState State;          // 建造状态 (Building, Completed)
     }
+
+    /// <summary>
+    /// 游客中心功能组件
+    /// 挂载此组件的实体具备生成游客的能力
+    /// </summary>
+    public struct VisitorCenterComponent : IComponentData
+    {
+        public int UnspawnedVisitorCount; // 待生成的游客数量 (库存)
+        public float SpawnTimer;          // 生成计时器
+        public float SpawnInterval;       // 生成间隔 (秒)
+    }
     #endregion
 
     #region 桥梁相关组件定义
@@ -144,6 +148,25 @@ namespace GameFramework.ECS.Components
     public struct BridgeComponent : IComponentData
     {
         public int ConfigId;
+    }
+    #endregion
+
+    #region 游客相关组件定义
+
+    public struct VisitorComponent : IComponentData
+    {
+        public FixedString64Bytes Name;
+        public int Age;
+        public float MoveSpeed;
+    }
+
+    /// <summary>
+    /// 路径缓冲区元素 (用于存储 A* 算出来的路径点)
+    /// </summary>
+    [InternalBufferCapacity(50)]
+    public struct PathBufferElement : IBufferElementData
+    {
+        public int3 Value; // 网格坐标
     }
     #endregion
 }
