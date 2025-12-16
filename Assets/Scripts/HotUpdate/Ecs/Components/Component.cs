@@ -2,6 +2,7 @@ using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
 using UnityEngine;
+using cfg.building;
 
 namespace GameFramework.ECS.Components
 {
@@ -105,15 +106,7 @@ namespace GameFramework.ECS.Components
     #endregion
 
     #region 寻路相关组件定义
-    public struct PathfindingRequest : IComponentData, IEnableableComponent
-    {
-        public int3 StartPosition;
-        public int3 EndPosition;
-        public bool IsPending; // 标记是否等待处理
-    }
 
-    // 寻路代理标签：标记该单位具备寻路能力
-    public struct PathfindingAgentTag : IComponentData { }
     #endregion
 
     #region 建筑相关组件定义
@@ -124,9 +117,7 @@ namespace GameFramework.ECS.Components
     {
         public int ConfigId;    // 对应配置表中的 ID
         public int3 Size;       // 建筑尺寸 (x, y, z)
-        // 可以在此扩展其他数据，例如：
-        // public double ConstructionStartTime; // 建造开始时间
-        // public BuildingState State;          // 建造状态 (Building, Completed)
+        public FunctionType FuncType; // [新增] 建筑功能类型枚举
     }
 
     /// <summary>
@@ -152,21 +143,46 @@ namespace GameFramework.ECS.Components
     #endregion
 
     #region 游客相关组件定义
+    public enum VisitorState
+    {
+        Idle,           // 0: 空闲/思考中
+        Pathfinding,    // 1: 正在等待寻路
+        Moving,         // 2: 正在移动
+        Arrived         // 3: 到达目的地（短暂状态）
+    }
 
     public struct VisitorComponent : IComponentData
     {
         public FixedString64Bytes Name;
         public int Age;
         public float MoveSpeed;
+
+        // 状态机数据
+        public VisitorState CurrentState;
+        public float StateTimer; // 通用计时器（用于停留、发呆等）
     }
 
-    /// <summary>
-    /// 路径缓冲区元素 (用于存储 A* 算出来的路径点)
-    /// </summary>
-    [InternalBufferCapacity(50)]
+    // [Buffer] 已访问过的建筑 ID 列表
+    [InternalBufferCapacity(8)]
+    public struct VisitedBuildingElement : IBufferElementData
+    {
+        public int BuildingConfigId;
+    }
+
+    // [Buffer] 移动路径点队列
+    [InternalBufferCapacity(30)]
     public struct PathBufferElement : IBufferElementData
     {
-        public int3 Value; // 网格坐标
+        public int3 GridPos;
     }
+
+    // [Component] 寻路请求
+    public struct PathfindingRequest : IComponentData, IEnableableComponent
+    {
+        public int3 StartPos;
+        public int3 EndPos;
+        public bool IsPending; // true = 需要计算, false = 计算完成
+    }
+
     #endregion
 }

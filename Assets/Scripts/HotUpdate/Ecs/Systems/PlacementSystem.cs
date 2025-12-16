@@ -126,7 +126,8 @@ namespace GameFramework.ECS.Systems
         private void HandleInput(ref PlacementStateComponent state, GridConfigComponent gridConfig)
         {
             if (Input.GetKeyDown(KeyCode.B)) { ToggleMode(ref state, PlacementType.Island, 100005); }
-            if (Input.GetKeyDown(KeyCode.K)) { ToggleMode(ref state, PlacementType.Building, 200001); }
+            if (Input.GetKeyDown(KeyCode.K)) { ToggleMode(ref state, PlacementType.Building, 200003); }
+            if (Input.GetKeyDown(KeyCode.J)) { ToggleMode(ref state, PlacementType.Building, 200001); }
             if (Input.GetKeyDown(KeyCode.L)) { ToggleMode(ref state, PlacementType.Bridge, 300001); }
             if (Input.GetKeyDown(KeyCode.Escape)) { state.IsActive = false; }
 

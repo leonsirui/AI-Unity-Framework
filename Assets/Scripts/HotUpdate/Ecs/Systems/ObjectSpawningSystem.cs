@@ -9,6 +9,7 @@ using Unity.Mathematics;
 using Unity.Physics;
 using Unity.Transforms;
 using UnityEngine;
+using cfg.building;
 
 namespace GameFramework.ECS.Systems
 {
@@ -100,7 +101,7 @@ namespace GameFramework.ECS.Systems
                 {
                     int3 endPos = req.Position + req.Size - new int3(1, 1, 1);
 
-                    // 1. 再次校验 (建筑规则)
+                    // 1. 再次校验
                     if (!_gridSystem.IsBuildingBuildable(req.Position, endPos))
                     {
                         Debug.LogWarning($"[Spawning] 拒绝生成建筑：位置 {req.Position} 不可建造");
@@ -111,51 +112,52 @@ namespace GameFramework.ECS.Systems
                     // 2. 尝试生成
                     if (TrySpawnObject(req, out Entity spawnedEntity))
                     {
-                        // 3. 注册网格 (建筑特有逻辑)
+                        // 3. 注册网格
                         FixedString64Bytes buildingId = new FixedString64Bytes(req.ObjectId.ToString());
                         _gridSystem.RegisterBuilding(req.Position, req.Size, buildingId);
 
-                        // 4. 添加组件 (建筑特有组件)
-                        EntityManager.AddComponentData(spawnedEntity, new BuildingComponent
-                        {
-                            ConfigId = req.ObjectId,
-                            Size = req.Size
-                        });
-
-                        // ================== [新增] 根据 FunctionType 挂载功能组件 ==================
+                        // [修改] 获取配置并填充组件
+                        FunctionType fType = 0; // 默认为0或None
                         if (ConfigManager.Instance.Tables != null)
                         {
                             var config = ConfigManager.Instance.Tables.BuildingCfg.Get(req.ObjectId);
                             if (config != null)
                             {
+                                fType = config.FunctionType;
+
+                                // 根据类型挂载特定的功能组件
                                 switch (config.FunctionType)
                                 {
-                                    // 对应 building.FunctionType.VisitorCenter (枚举值 1)
-                                    case cfg.building.FunctionType.VisitorCenter:
+                                    case FunctionType.VisitorCenter:
                                         EntityManager.AddComponentData(spawnedEntity, new VisitorCenterComponent
                                         {
-                                            UnspawnedVisitorCount = 5,  // 初始给 5 个待生成名额用于测试
-                                            SpawnInterval = 2.0f,       // 每 2 秒生成一个
+                                            UnspawnedVisitorCount = 5,
+                                            SpawnInterval = 2.0f,
                                             SpawnTimer = 0f
                                         });
-                                        Debug.Log($"[Spawning] 已为建筑 {req.ObjectId} 挂载 '游客中心' 组件");
+                                        Debug.Log($"[Spawning] 建筑 {req.ObjectId} 挂载 '游客中心' 组件");
                                         break;
 
-                                    // 对应 building.FunctionType.Airport (枚举值 2)
-                                    case cfg.building.FunctionType.Airport:
-                                        // 未来实现: EntityManager.AddComponentData(spawnedEntity, new AirportComponent {...});
-                                        Debug.Log($"[Spawning] 这是一个航站楼，尚未实现功能组件");
+                                    case FunctionType.Airport:
+                                        Debug.Log($"[Spawning] 建筑 {req.ObjectId} 是航站楼");
                                         break;
 
-                                    // 对应 building.FunctionType.Shop (枚举值 3)
-                                    case cfg.building.FunctionType.Shop:
-                                        // 未来实现...
+                                    case FunctionType.Shop:
+                                        Debug.Log($"[Spawning] 建筑 {req.ObjectId} 是商店");
                                         break;
                                 }
                             }
                         }
 
-                        Debug.Log($"[Spawning] 建筑生成成功 ID:{req.ObjectId} @ {req.Position}");
+                        // [修改] 添加 BuildingComponent，包含 FuncType
+                        EntityManager.AddComponentData(spawnedEntity, new BuildingComponent
+                        {
+                            ConfigId = req.ObjectId,
+                            Size = req.Size,
+                            FuncType = fType // 记录枚举值
+                        });
+
+                        Debug.Log($"[Spawning] 建筑生成成功 ID:{req.ObjectId} 类型:{fType} @ {req.Position}");
                         isProcessed = true;
                     }
                 }
