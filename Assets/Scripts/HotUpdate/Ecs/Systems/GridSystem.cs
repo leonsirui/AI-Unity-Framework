@@ -203,7 +203,6 @@ namespace GameFramework.ECS.Systems
                     UpdateCell(targetPos, (ref GridCellData data) => {
                         data.IsBridgeable = true;
                         // 附着点通常是连接点，所以也应该允许 NPC 移动上去
-                        data.IsMovable = true;
                     });
                 }
             }
@@ -259,7 +258,7 @@ namespace GameFramework.ECS.Systems
                         UpdateCell(pos + new int3(x, y, z), (ref GridCellData data) => {
                             data.Type = GridType.Building;
                             data.BuildingID = buildingId;
-                            data.IsMovable = false;
+                            data.IsMovable = true;
                             data.IsBuildable = false;
                             // 建筑占据后，通常不再作为造桥点，除非有特殊设计
                         });
