@@ -33,7 +33,7 @@ MonoBehaviour:
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 187caeb518629c140a6d380bb668e17e
-    m_Address: Assets/Prefabs/BridgeModel/Model_bridge_shizilukou.prefab
+    m_Address: bridge_300003
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -48,7 +48,7 @@ MonoBehaviour:
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 2d2e1d4ca7db3f543b94beab52a37b5a
-    m_Address: Assets/Prefabs/BridgeModel/Model_bridge_xiepo.prefab
+    m_Address: bridge_300004
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -73,7 +73,7 @@ MonoBehaviour:
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 54bee8bceddbf2143b5150cda3a3c4a2
-    m_Address: Assets/Prefabs/BridgeModel/Model_bridge_zhuanjiao.prefab
+    m_Address: bridge_300002
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -113,7 +113,7 @@ MonoBehaviour:
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 9177299a3b5e4ef46bce65e2fff95573
-    m_Address: Assets/Prefabs/BridgeModel/Model_bridge_zhidao.prefab
+    m_Address: bridge_300001
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

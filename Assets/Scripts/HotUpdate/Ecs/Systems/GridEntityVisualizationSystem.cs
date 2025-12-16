@@ -21,7 +21,7 @@ namespace GameFramework.ECS.Systems
         private bool _isResourceLoaded = false;
 
         // [新增] 可视化模式枚举，用于状态管理
-        private enum VisMode { None, LayerRange, BuildableOnly }
+        private enum VisMode { None, LayerRange, BuildableOnly, BridgeableOnly }
         private VisMode _currentMode = VisMode.None;
         private int2 _currentRange = new int2(-1, -1);
 
@@ -102,6 +102,45 @@ namespace GameFramework.ECS.Systems
             _currentRange = new int2(-1, -1); // 重置层级记录
 
             GenerateBuildableGrids();
+        }
+
+        // [新增]：显示所有可造桥区域（岛屿连接点）
+        public void ShowBridgeableGrids()
+        {
+            if (!CheckPrerequisites()) return;
+
+            // 状态去重
+            if (_currentMode == VisMode.BridgeableOnly) return;
+
+            ClearCurrentGrid();
+            _currentMode = VisMode.BridgeableOnly;
+            _currentRange = new int2(-1, -1); // 重置层级记录
+
+            GenerateBridgeableGrids();
+        }
+
+        // [新增]：生成可造桥网格的具体逻辑
+        private void GenerateBridgeableGrids()
+        {
+            var config = SystemAPI.GetSingleton<GridConfigComponent>();
+            var boxGeometry = GetBoxGeometry(config);
+
+            // 遍历全局网格，寻找 IsBridgeable = true 的格子
+            foreach (var kvp in _gridSystem.WorldGrid)
+            {
+                var cellData = kvp.Value;
+
+                // 核心筛选：只显示标记为“可造桥”且尚未被完全阻挡的格子
+                // 注意：如果该格子已经被建筑占据(BuildingID不为空)，通常就不显示了，除非你的设计允许重叠
+                if (cellData.IsBridgeable)
+                {
+                    SpawnSingleGridCell(cellData.WorldPosition, cellData.Position, boxGeometry);
+                }
+
+                // 扩展逻辑（可选）：如果你希望在此基础上，也显示已经造了桥的位置（方便连接），
+                // 可以加上 || cellData.Type == GridType.PublicBridge
+            }
+            Debug.Log($"[GridVis] 显示桥梁锚点，数量: {_currentVisualEntities.Length}");
         }
 
         private bool CheckPrerequisites()

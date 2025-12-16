@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 8124550973743817502}
   - component: {fileID: 6279358569487603668}
   m_Layer: 0
-  m_Name: Model_bridge_zhuanjiao
+  m_Name: bridge_300002
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

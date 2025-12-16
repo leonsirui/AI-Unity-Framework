@@ -19,12 +19,13 @@ namespace GameFramework.ECS.Systems
     {
         // [核心数据] 全局网格数据容器
         public NativeParallelHashMap<int3, GridCellData> WorldGrid;
-
+        public NativeParallelHashMap<int3, Entity> BridgeEntityMap;
         private Random _random;
         private bool _isInitialized = false;
 
         protected override void OnCreate()
         {
+            BridgeEntityMap = new NativeParallelHashMap<int3, Entity>(1000, Allocator.Persistent);
             // 初始化 NativeHashMap (容量预估 100x100x15 = 150,000)
             WorldGrid = new NativeParallelHashMap<int3, GridCellData>(150000, Allocator.Persistent);
             _random = new Random(1234); // 随机种子
@@ -46,6 +47,8 @@ namespace GameFramework.ECS.Systems
         protected override void OnDestroy()
         {
             if (WorldGrid.IsCreated) WorldGrid.Dispose();
+            if (BridgeEntityMap.IsCreated) BridgeEntityMap.Dispose();
+            base.OnDestroy();
         }
 
         protected override void OnUpdate()
@@ -287,22 +290,6 @@ namespace GameFramework.ECS.Systems
         }
 
         /// <summary>
-        /// 注册桥梁
-        /// </summary>
-        public bool RegisterBridge(int3 pos, FixedString64Bytes bridgeId)
-        {
-            if (!IsBridgeBuildable(pos)) return false;
-
-            UpdateCell(pos, (ref GridCellData data) => {
-                data.Type = GridType.PublicBridge;
-                data.BuildingID = bridgeId;
-                data.IsMovable = true; // 桥梁必定可行走
-                data.IsBuildable = false;
-            });
-            return true;
-        }
-
-        /// <summary>
         /// [复刻项目1] 根据锚点和尺寸计算物体的世界中心坐标
         /// 逻辑：(锚点世界坐标 + 对角点世界坐标) / 2
         /// </summary>
@@ -419,6 +406,48 @@ namespace GameFramework.ECS.Systems
                 }
             }
             return results;
+        }
+
+        /// <summary>
+        /// 注册桥梁：标记自身占用，并将周围的空位标记为可造桥锚点
+        /// </summary>
+        public bool RegisterBridge(int3 pos, FixedString64Bytes bridgeId)
+        {
+            // 1. 再次检查是否可造
+            if (!IsBridgeBuildable(pos)) return false;
+
+            // 2. 更新当前格子状态
+            UpdateCell(pos, (ref GridCellData data) => {
+                data.Type = GridType.PublicBridge;
+                data.BuildingID = bridgeId;
+                data.IsMovable = true;      // 桥梁是可行走区域
+                data.IsBuildable = false;   // 桥梁上不能建房子
+                data.IsBridgeable = false;  // 自身已被占用，不能再造桥（防止重叠）
+            });
+
+            // 3. [新增] 激活周围邻居为“可造桥区域” (延伸机制)
+            int3[] neighborOffsets = {
+                new int3(1, 0, 0), new int3(-1, 0, 0),
+                new int3(0, 0, 1), new int3(0, 0, -1)
+            };
+
+            foreach (var offset in neighborOffsets)
+            {
+                int3 neighborPos = pos + offset;
+
+                // 只有当邻居在网格范围内，且是空的空气/水面时，才激活锚点
+                if (IsValidPosition(neighborPos))
+                {
+                    UpdateCell(neighborPos, (ref GridCellData data) => {
+                        if (data.Type == GridType.Space)
+                        {
+                            data.IsBridgeable = true; // 标记为可造桥，虚影系统会识别这个标记
+                        }
+                    });
+                }
+            }
+
+            return true;
         }
 
         // ===========================================================================================

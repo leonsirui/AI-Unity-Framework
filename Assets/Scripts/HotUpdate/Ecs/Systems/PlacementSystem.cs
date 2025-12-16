@@ -132,7 +132,8 @@ namespace GameFramework.ECS.Systems
 
             if (state.IsActive)
             {
-                // 只有在岛屿模式下才允许手动调节高度层，建筑模式由网格自动决定高度
+                // [修改]：只允许在【岛屿模式】下手动调节高度层
+                // 桥梁模式现在依赖可视化的锚点，不需要手动切层
                 if (state.Type == PlacementType.Island)
                 {
                     if (Input.GetKeyDown(KeyCode.Alpha1)) ChangeHeightLayer(1, gridConfig.Height, state.Type);
@@ -163,7 +164,7 @@ namespace GameFramework.ECS.Systems
             _currentPlacementLayer = math.clamp(_currentPlacementLayer + delta, 0, maxHeight - 1);
 
             // 只有当显示的不是“全部可建区域”时，才需要刷新 Visualization
-            if (_currentPlacementLayer != oldLayer && type == PlacementType.Island)
+            if (_currentPlacementLayer != oldLayer && (type == PlacementType.Island || type == PlacementType.Bridge))
             {
                 Debug.Log($"[Placement] 切换高度层: {oldLayer} -> {_currentPlacementLayer}");
                 _gridVisSystem?.SetVisualizationRange(_currentPlacementLayer, _currentPlacementLayer);
@@ -175,7 +176,7 @@ namespace GameFramework.ECS.Systems
         {
             if (newType == PlacementType.Building)
             {
-                // 建筑模式：只显示所有可建造的网格（不分层级）
+                // 建筑模式：显示所有可建造的网格
                 _gridVisSystem?.ShowBuildableGrids();
             }
             else if (newType == PlacementType.Island)
@@ -185,8 +186,12 @@ namespace GameFramework.ECS.Systems
             }
             else if (newType == PlacementType.Bridge)
             {
-                // 桥梁模式 (TODO: ShowBridgeHints)
-                // 暂时先复用可建造显示或留空
+                // [修改点] 桥梁模式：只显示岛屿边缘的连接点
+                _gridVisSystem?.ShowBridgeableGrids();
+            }
+            else
+            {
+                // 退出模式：隐藏所有
                 _gridVisSystem?.SetVisualizationRange(-1, -1);
             }
         }
@@ -206,7 +211,8 @@ namespace GameFramework.ECS.Systems
 
         private int3 CalculateFinalPlacementPosition(int3 hitPos, int3 size, PlacementType type)
         {
-            // 对于建筑，hitPos.y 已经来自射线的真实反馈，不要强制覆盖
+            // 只有岛屿模式需要使用 _currentPlacementLayer 强制高度
+            // 建筑和桥梁都应该依附于点击的表面 (hitPos.y)
             int targetY = (type == PlacementType.Island) ? _currentPlacementLayer : hitPos.y;
 
             int offsetX = (size.x % 2 == 1) ? (size.x / 2) : ((size.x - 1) / 2);
@@ -226,12 +232,19 @@ namespace GameFramework.ECS.Systems
             return false;
         }
 
-        // [关键修改] 射线检测逻辑
+        // [修改 2]: 射线检测逻辑修正
         private bool PerformRaycast(CollisionWorld collisionWorld, PlacementType type, out int3 gridPos)
         {
             gridPos = int3.zero;
             UnityEngine.Ray unityRay = _mainCamera.ScreenPointToRay(Input.mousePosition);
-            RaycastInput rayInput = new RaycastInput { Start = unityRay.origin, End = unityRay.origin + unityRay.direction * 5000f, Filter = CollisionFilter.Default };
+
+            // 增加射线距离，防止太远点不到
+            RaycastInput rayInput = new RaycastInput
+            {
+                Start = unityRay.origin,
+                End = unityRay.origin + unityRay.direction * 5000f,
+                Filter = CollisionFilter.Default
+            };
 
             if (collisionWorld.CastRay(rayInput, out RaycastHit hit))
             {
@@ -239,12 +252,14 @@ namespace GameFramework.ECS.Systems
                 {
                     gridPos = EntityManager.GetComponentData<GridPositionComponent>(hit.Entity).Value;
 
-                    // 如果是岛屿模式，我们是在空中画画，需要强制 Y 轴
-                    // 如果是建筑模式，我们点击的是已经显示出来的“可建造格子”，直接用它的 Y 轴即可
+                    // [关键修正]：
+                    // 只有 Island 模式是在空中画画，需要强制 Y 轴
+                    // Bridge 模式现在是点击可视化的锚点格子，必须保留该格子原本的 Y 轴信息
                     if (type == PlacementType.Island)
                     {
                         gridPos.y = _currentPlacementLayer;
                     }
+
                     return true;
                 }
             }

@@ -136,4 +136,14 @@ namespace GameFramework.ECS.Components
         // public BuildingState State;          // 建造状态 (Building, Completed)
     }
     #endregion
+
+    #region 桥梁相关组件定义
+    /// <summary>
+    /// 桥梁组件：标记该实体为桥梁，并记录基础配置ID
+    /// </summary>
+    public struct BridgeComponent : IComponentData
+    {
+        public int ConfigId;
+    }
+    #endregion
 }

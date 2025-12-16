@@ -22,6 +22,9 @@ namespace GameFramework.ECS.Systems
         private EntityFactory _entityFactory;
         private GridConfigComponent _gridConfig;
 
+        // [新增] 引用可视化系统，用于刷新
+        private GridEntityVisualizationSystem _visSystem;
+
         private HashSet<int> _loadingAssets = new HashSet<int>();
 
         protected override void OnCreate()
@@ -40,6 +43,8 @@ namespace GameFramework.ECS.Systems
         protected override void OnStartRunning()
         {
             _gridSystem = World.GetExistingSystemManaged<GridSystem>();
+            // [新增] 获取可视化系统
+            _visSystem = World.GetExistingSystemManaged<GridEntityVisualizationSystem>();
             _gridConfig = SystemAPI.GetSingleton<GridConfigComponent>();
         }
 
@@ -121,11 +126,40 @@ namespace GameFramework.ECS.Systems
                         isProcessed = true;
                     }
                 }
-                // ---------------- 桥梁生成逻辑 (可预留) ----------------
+                // ---------------- 桥梁生成逻辑 ----------------
                 else if (req.Type == PlacementType.Bridge)
                 {
-                    // 类似逻辑：校验 -> 生成 -> RegisterBridge -> 添加 BridgeComponent
-                    // ...
+                    // 1. 校验
+                    if (!_gridSystem.IsBridgeBuildable(req.Position))
+                    {
+                        Debug.LogWarning($"[Spawning] 拒绝生成桥梁：位置 {req.Position} 无效");
+                        EntityManager.DestroyEntity(entity);
+                        continue;
+                    }
+
+                    // 2. 尝试生成
+                    if (TrySpawnObject(req, out Entity spawnedEntity))
+                    {
+                        FixedString64Bytes bridgeId = new FixedString64Bytes(req.ObjectId.ToString());
+
+                        // 3. 注册数据 (GridSystem 会自动处理邻居扩充)
+                        _gridSystem.RegisterBridge(req.Position, bridgeId);
+
+                        // [新增] 4. 立即刷新可视化网格
+                        // 这样玩家点下鼠标后，立刻看到新造的桥周围亮起了绿格子
+                        if (_visSystem != null)
+                        {
+                            _visSystem.ShowBridgeableGrids();
+                        }
+
+                        // 5. 添加组件
+                        EntityManager.AddComponentData(spawnedEntity, new BridgeComponent
+                        {
+                            ConfigId = req.ObjectId
+                        });
+
+                        isProcessed = true;
+                    }
                 }
 
                 // 如果处理成功（非加载等待中），则销毁请求实体
@@ -140,15 +174,11 @@ namespace GameFramework.ECS.Systems
             requests.Dispose();
         }
 
-        /// <summary>
-        /// 通用的对象生成尝试方法 (合并了原有的 TrySpawnIsland)
-        /// </summary>
         private bool TrySpawnObject(PlaceObjectRequest req, out Entity spawnedEntity)
         {
             spawnedEntity = Entity.Null;
-
-            // A. 根据类型获取资源路径
             string resourcePath = "";
+
             if (ConfigManager.Instance.Tables != null)
             {
                 switch (req.Type)
@@ -160,7 +190,14 @@ namespace GameFramework.ECS.Systems
                         resourcePath = ConfigManager.Instance.Tables.BuildingCfg.Get(req.ObjectId)?.ResourceName;
                         break;
                     case PlacementType.Bridge:
-                        resourcePath = ConfigManager.Instance.Tables.BridgeCfg.Get(req.ObjectId)?.ResourceName;
+                        // [关键修改] 桥梁特殊处理：默认加载直路模型
+                        // 假设配置表中填的是 "Prefabs/BridgeModel/Model_bridge"
+                        // 我们手动加上后缀 "_zhidao"
+                        string basePath = ConfigManager.Instance.Tables.BridgeCfg.Get(req.ObjectId)?.ResourceName;
+                        if (!string.IsNullOrEmpty(basePath))
+                        {
+                            resourcePath = basePath;
+                        }
                         break;
                 }
             }
@@ -168,32 +205,43 @@ namespace GameFramework.ECS.Systems
             if (string.IsNullOrEmpty(resourcePath))
             {
                 Debug.LogError($"配置无效或资源路径缺失 ID: {req.ObjectId}");
-                return true; // 视为处理完成（失败），避免死循环
+                return true;
             }
 
             // B. 计算世界坐标
-            // 注意：建筑通常需要在地表上，计算中心点
             float3 worldPos = _gridSystem.CalculateObjectCenterWorldPosition(req.Position, req.Size);
 
+            // [新增] 桥梁可能有特殊的旋转修正 (例如直路默认是竖着的，需要根据输入旋转)
+            quaternion rotation = req.Rotation;
+            if (req.Type == PlacementType.Bridge)
+            {
+                // 如果你的直路模型默认是Z轴朝向，这里可能不需要额外修正，直接用 req.Rotation 即可
+                // 如果模型默认是X轴朝向，可能需要 * quaternion.RotateY(math.radians(90))
+            }
+
             // C. 检查工厂缓存与生成
+            // 注意：这里为了简化，我们暂时用 ObjectId 作为缓存 Key。
+            // 如果以后桥梁有不同形状 (直路/弯路) 但 ID 相同，这种缓存机制需要修改（Key 应该是 ID + 形状后缀）。
+            // 目前先忽略这个问题，因为我们只加载直路。
+
             if (_entityFactory.HasEntity(req.ObjectId))
             {
-                // 计算碰撞体大小 (简单包围盒)
+                // 简化的碰撞体逻辑
                 float cellSize = _gridConfig.CellSize > 0 ? _gridConfig.CellSize : 1f;
                 float3 colliderSize = new float3(req.Size.x, req.Size.y, req.Size.z) * cellSize;
 
                 var boxGeometry = new BoxGeometry
                 {
-                    Center = float3.zero + new float3(0, 0, -2),
+                    Center = float3.zero, // 桥梁中心修正
                     Orientation = quaternion.identity,
-                    Size = new float3(colliderSize.x, colliderSize.z, colliderSize.y),
+                    Size = new float3(colliderSize.x, 0.5f, colliderSize.z), // 桥梁扁一点
                     BevelRadius = 0f
                 };
 
                 spawnedEntity = _entityFactory.SpawnColliderEntity(
                     req.ObjectId,
                     worldPos,
-                    req.Rotation,
+                    rotation,
                     boxGeometry
                 );
             }
@@ -208,12 +256,13 @@ namespace GameFramework.ECS.Systems
                 if (!_loadingAssets.Contains(req.ObjectId))
                 {
                     _loadingAssets.Add(req.ObjectId);
+                    // 传入修改后的 resourcePath (带 _zhidao 后缀的)
                     LoadAssetAndCleanState(req.ObjectId, resourcePath).Forget();
                 }
                 return false; // 等待加载
             }
 
-            // E. 所有物体通用的组件
+            // E. 添加位置组件
             EntityManager.AddComponentData(spawnedEntity, new GridPositionComponent { Value = req.Position });
 
             return true;

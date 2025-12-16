@@ -12,7 +12,7 @@ GameObject:
   - component: {fileID: 5236500127708868784}
   - component: {fileID: 8020698003953091706}
   m_Layer: 0
-  m_Name: Model_bridge_shizilukou
+  m_Name: bridge_300003
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
