@@ -1,7 +1,9 @@
 using Cysharp.Threading.Tasks;
 using GameFramework.ECS.Systems;
+using GameFramework.Events;
 using GameFramework.Examples;
 using GameFramework.Managers;
+using HotUpdate.Core;
 using Unity.Entities;
 using UnityEngine;
 
@@ -43,6 +45,8 @@ namespace GameFramework.Core
             InputManager.Instance.Initialize();
             SaveManager.Instance.Initialize();
             PoolManager.Instance.Initialize();
+
+            SimpleQuestManager.Instance.Init();
 
             var resManager = GameResourceManager.Instance;
             // 2. 初始化ECS世界

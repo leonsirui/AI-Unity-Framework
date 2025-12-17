@@ -32,13 +32,13 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 0d397b0d862066041ab686633271b82b
-    m_Address: Assets/Prefabs/BuildingModel/Model_building_jiemi.prefab
+  - m_GUID: 187caeb518629c140a6d380bb668e17e
+    m_Address: bridge_300003
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 187caeb518629c140a6d380bb668e17e
-    m_Address: bridge_300003
+  - m_GUID: 1a2c51d475467854cba971da77534515
+    m_Address: building_200007
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -57,11 +57,6 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 2d6d20404953aa84abb58a4db2b60584
-    m_Address: Assets/Prefabs/BuildingModel/BuildingPrefab.prefab
-    m_ReadOnly: 0
-    m_SerializedLabels: []
-    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 390a911407e4b444bb073d04e4542527
     m_Address: building_200001
     m_ReadOnly: 0
@@ -69,6 +64,11 @@ MonoBehaviour:
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 3f0d62f3967363c40aaa0d1b57c1d721
     m_Address: Assets/Prefabs/Widget/IslandLittleProgressBarWidget.prefab
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 44606e7280adf7f47a2a0ede882dd36a
+    m_Address: building_200006
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -82,11 +82,6 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 58be6f81fbad4f54fad3c6d3f85edd7b
-    m_Address: Assets/Prefabs/IslandModel/IslandPrefab.prefab
-    m_ReadOnly: 0
-    m_SerializedLabels: []
-    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 5af250acdbf386e40993ca34dc3f343b
     m_Address: building_200003
     m_ReadOnly: 0
@@ -97,13 +92,18 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 6d334c05baf0b71499ef2ad8fe421b54
-    m_Address: Assets/Prefabs/Widget/IslandProgressBarWidget.prefab
+  - m_GUID: 63124ace0e9bd4f4ea69d7c95ded5b32
+    m_Address: bridge_300005
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 6d8533c652a2c214db853e225c73b5a4
-    m_Address: Assets/Prefabs/BuildingModel/Model_building_tianwen.prefab
+  - m_GUID: 6584c53e38fd6b24aa0f0c95741f909e
+    m_Address: building_200004
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 6d334c05baf0b71499ef2ad8fe421b54
+    m_Address: Assets/Prefabs/Widget/IslandProgressBarWidget.prefab
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -114,11 +114,6 @@ MonoBehaviour:
     FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 8dcc4cb2f14c3854a8a2e53767a58d7a
     m_Address: island_100005
-    m_ReadOnly: 0
-    m_SerializedLabels: []
-    FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: 8ee603b6666117d4ea7481d4154daf0a
-    m_Address: Assets/Prefabs/BridgeModel/BridgePrefab.prefab
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
@@ -153,8 +148,13 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
-  - m_GUID: d0219f57a965f4647b1d6c8e96d028a5
-    m_Address: Assets/Prefabs/BuildingModel/Model_building_kafei.prefab
+  - m_GUID: cf2a8c2be4fba2b419d73f6ee270dd66
+    m_Address: building_200008
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: eb2a4f9116e1f08458949a47cca8e890
+    m_Address: building_200005
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0

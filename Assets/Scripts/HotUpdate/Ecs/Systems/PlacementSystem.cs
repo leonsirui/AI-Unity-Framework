@@ -3,6 +3,7 @@ using Cysharp.Threading.Tasks;
 using GameFramework.Core;
 using GameFramework.ECS.Components;
 using GameFramework.Managers;
+using HotUpdate.Core;
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -108,13 +109,18 @@ namespace GameFramework.ECS.Systems
 
                 if ((Input.GetMouseButtonDown(0) || Input.GetKeyDown(KeyCode.Space)) && state.IsPositionValid)
                 {
-                    int airSpace = 5;
+                    int airSpace = 4;
                     if (state.Type == PlacementType.Island && ConfigManager.Instance.Tables != null)
                     {
                         var cfg = ConfigManager.Instance.Tables.IslandCfg.Get(state.CurrentObjectId);
                         if (cfg != null) airSpace = cfg.AirHeight;
                     }
                     SendPlacementRequest(state.CurrentObjectId, state.Type, targetGridPos, finalSize, state.RotationIndex, airSpace);
+                    // 直接通知任务系统：玩家成功放置了一个物体
+                    GameFramework.Events.EventManager.Instance.Publish(new ObjectBuiltEvent
+                    {
+                        Type = state.Type
+                    });
                 }
             }
             else

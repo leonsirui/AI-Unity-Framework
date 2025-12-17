@@ -22,9 +22,21 @@ namespace cfg.building
         /// </summary>
         Airport = 2,
         /// <summary>
+        /// 工程署
+        /// </summary>
+        EngineeringDepartment = 3,
+        /// <summary>
+        /// 人才中心
+        /// </summary>
+        TalentCenter = 4,
+        /// <summary>
         /// 商店
         /// </summary>
-        Shop = 3,
+        Shop = 5,
+        /// <summary>
+        /// 工厂
+        /// </summary>
+        Factory = 6,
     }
 
 } 

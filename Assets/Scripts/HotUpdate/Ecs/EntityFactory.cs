@@ -133,75 +133,99 @@ namespace GameFramework.ECS
                 _entityPrefabCache.Remove(configId);
             }
 
-            // 2. 加载资源 (Addressables)
+            // 2. 加载资源
             GameObject assetGo = await ResourceManager.Instance.LoadAssetAsync<GameObject>(resourcePath);
             if (assetGo == null) return Entity.Null;
 
-            Mesh mesh = null;
-            UnityEngine.Material material = null;
-
-            // 3. 尝试提取渲染数据 (优先 Mesh，其次 Sprite)
-            var meshFilter = assetGo.GetComponentInChildren<MeshFilter>();
-            var meshRenderer = assetGo.GetComponentInChildren<MeshRenderer>();
-
-            if (meshFilter != null && meshRenderer != null)
-            {
-                // 情况 A: 标准 3D 模型
-                mesh = meshFilter.sharedMesh;
-                material = meshRenderer.sharedMaterial;
-            }
-            else
-            {
-                // 情况 B: 2D Sprite
-                var spriteRenderer = assetGo.GetComponentInChildren<SpriteRenderer>();
-                if (spriteRenderer != null && spriteRenderer.sprite != null)
-                {
-                    // 将 Sprite 动态转换为 Mesh 以便 ECS 渲染
-                    mesh = CreateMeshFromSprite(spriteRenderer.sprite);
-                    material = spriteRenderer.sharedMaterial;
-                }
-            }
-
-            // 如果两者都没有，创建一个纯数据实体（例如不可见的逻辑对象）
-            if (mesh == null || material == null)
-            {
-                Debug.LogWarning($"[EntityFactory] 资源没有 Mesh 或 Sprite，创建纯数据实体: {resourcePath}");
-                prefabEntity = _entityManager.CreateEntity();
-                _entityManager.AddComponentData(prefabEntity, new LocalTransform { Scale = 1f, Rotation = quaternion.identity });
-                _entityManager.AddComponent<Prefab>(prefabEntity);
-                _entityPrefabCache[configId] = prefabEntity;
-                return prefabEntity;
-            }
-
-            // 4. 创建 ECS 实体
+            // 3. 创建根实体
             prefabEntity = _entityManager.CreateEntity();
 
-            // 5. 添加渲染组件
-            var renderMeshArray = new RenderMeshArray(new[] { material }, new[] { mesh });
+            // 添加 Prefab 标签
+            _entityManager.AddComponent<Prefab>(prefabEntity);
 
-            // 配置渲染描述：网格通常不需要投射阴影，但需要接收阴影
-            // 如果是 Sprite，可能需要根据 2D/3D 需求调整 shadowCastingMode
-            var renderMeshDescription = new RenderMeshDescription(
-                shadowCastingMode: ShadowCastingMode.Off,
-                receiveShadows: true
-            );
+            // 【关键修改】使用 List 临时存储所有实体，避免 buffer 句柄失效问题
+            var allEntitiesInHierarchy = new List<Entity>();
+            allEntitiesInHierarchy.Add(prefabEntity); // 根节点是第一个
 
-            RenderMeshUtility.AddComponents(
-                prefabEntity,
-                _entityManager,
-                renderMeshDescription,
-                renderMeshArray,
-                MaterialMeshInfo.FromRenderMeshArrayIndices(0, 0)
-            );
+            // 4. 递归转换层级 (传入 List)
+            ConvertGameObjectToEntityRecursive(assetGo, prefabEntity, allEntitiesInHierarchy);
 
-            // 6. 基础组件
-            _entityManager.AddComponentData(prefabEntity, new LocalTransform { Scale = 1f, Rotation = quaternion.identity });
-            _entityManager.AddComponent<Prefab>(prefabEntity); // 标记为Prefab
+            // 【关键修改】递归结束后，一次性添加 LinkedEntityGroup
+            var linkedGroup = _entityManager.AddBuffer<LinkedEntityGroup>(prefabEntity);
+            foreach (var entity in allEntitiesInHierarchy)
+            {
+                linkedGroup.Add(new LinkedEntityGroup { Value = entity });
+            }
 
-            // 7. 缓存
+            // 5. 缓存
             _entityPrefabCache[configId] = prefabEntity;
 
             return prefabEntity;
+        }
+
+        /// <summary>
+        /// 递归遍历 GameObject 层级并转换为 Entity 层级
+        /// </summary>
+        /// <summary>
+        /// 递归遍历 GameObject 层级并转换为 Entity 层级
+        /// </summary>
+        private void ConvertGameObjectToEntityRecursive(GameObject go, Entity entity, List<Entity> entityList)
+        {
+            // --- A. 处理变换组件 (LocalTransform) ---
+            _entityManager.AddComponentData(entity, LocalTransform.FromPositionRotationScale(
+                go.transform.localPosition,
+                go.transform.localRotation,
+                go.transform.localScale.x
+            ));
+
+            // --- B. 处理渲染组件 (Mesh / Sprite) ---
+            Mesh mesh = null;
+            UnityEngine.Material material = null;
+
+            if (go.TryGetComponent<MeshFilter>(out var mf) && go.TryGetComponent<MeshRenderer>(out var mr))
+            {
+                mesh = mf.sharedMesh;
+                material = mr.sharedMaterial;
+            }
+            else if (go.TryGetComponent<SpriteRenderer>(out var sr) && sr.sprite != null)
+            {
+                mesh = CreateMeshFromSprite(sr.sprite);
+                material = sr.sharedMaterial;
+            }
+
+            if (mesh != null && material != null)
+            {
+                var renderMeshArray = new RenderMeshArray(new[] { material }, new[] { mesh });
+                var renderMeshDescription = new RenderMeshDescription(
+                    shadowCastingMode: ShadowCastingMode.Off,
+                    receiveShadows: true
+                );
+
+                RenderMeshUtility.AddComponents(
+                    entity,
+                    _entityManager,
+                    renderMeshDescription,
+                    renderMeshArray,
+                    MaterialMeshInfo.FromRenderMeshArrayIndices(0, 0)
+                );
+            }
+
+            // --- C. 递归处理子物体 ---
+            foreach (Transform child in go.transform)
+            {
+                // 1. 创建子实体 (这里发生了结构性变化，但我们不再持有 Buffer，所以是安全的)
+                Entity childEntity = _entityManager.CreateEntity();
+
+                // 2. 设置父子关系
+                _entityManager.AddComponentData(childEntity, new Parent { Value = entity });
+                _entityManager.AddComponent<LocalToWorld>(childEntity);
+
+                // 3. 【修改】添加到 List 中
+                entityList.Add(childEntity);
+
+                // 4. 递归
+                ConvertGameObjectToEntityRecursive(child.gameObject, childEntity, entityList);
+            }
         }
 
         /// <summary>
