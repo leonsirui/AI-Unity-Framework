@@ -127,6 +127,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 953284eccc1bae140a3e3d0650c696fa
+    m_Address: ConstructPanel
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: aa3386a1f1e597c43960b04fb07b1615
     m_Address: Assets/Prefabs/Widget/ClickBuildingWidget.prefab
     m_ReadOnly: 0

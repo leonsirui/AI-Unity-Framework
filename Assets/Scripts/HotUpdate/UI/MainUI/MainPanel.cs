@@ -5,33 +5,57 @@ using GameFramework.Events;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using Cysharp.Threading.Tasks; // 引用 UniTask
+using GameFramework.HotUpdate.UI; // 引用 ConstructPanel 所在的命名空间
 
 class MainPanel : UIPanel
 {
-    //玩家信息部分
+    // 玩家信息部分
     [UIBind] private TextMeshProUGUI m_tmp_PlayerName;
     [UIBind] private Image PlayerIcon;
 
-    //资源信息部分
+    // 资源信息部分
     [UIBind] private TextMeshProUGUI m_tmp_WoodNumText;
     [UIBind] private TextMeshProUGUI m_tmp_RockNumText;
     [UIBind] private TextMeshProUGUI m_tmp_OilNumText;
     [UIBind] private TextMeshProUGUI m_tmp_GoldCoinNumText;
 
-    //活动按钮部分
+    // 活动按钮部分
     [UIBind] private Button m_btn_ActivityGift;
     [UIBind] private Button m_btn_7DayCheckIn;
 
-    //功能按钮
+    // 功能按钮
     [UIBind] private Button m_btn_PlacementSystem;
 
     protected override void OnInit()
     {
         base.OnInit();
+
+        // 绑定建造模式按钮点击事件
+        if (m_btn_PlacementSystem != null)
+        {
+            m_btn_PlacementSystem.onClick.AddListener(OnPlacementSystemClicked);
+        }
+        else
+        {
+            Debug.LogError("[MainPanel] m_btn_PlacementSystem 未绑定，请检查 UI 预制体节点名称是否匹配。");
+        }
+
         // 订阅资源变化事件
-        //EventManager.Instance.Subscribe<ResourceChangedEvent>(OnResourceChanged);
+        // EventManager.Instance.Subscribe<ResourceChangedEvent>(OnResourceChanged);
+
         // 初始化时主动刷新一次所有资源显示
         RefreshAllResources();
+    }
+
+    /// <summary>
+    /// 点击建造按钮回调
+    /// </summary>
+    private void OnPlacementSystemClicked()
+    {
+        Debug.Log("[MainPanel] 打开建造面板");
+        // "ConstructPanel" 必须是 Addressables Group 中的 Key (也是预制体的名称)
+        UIManager.Instance.ShowPanelAsync<ConstructPanel>("ConstructPanel").Forget();
     }
 
     protected void OnDestroy()
@@ -39,6 +63,12 @@ class MainPanel : UIPanel
         if (EventManager.Instance != null)
         {
             EventManager.Instance.Unsubscribe<ResourceChangedEvent>(OnResourceChanged);
+        }
+
+        // 移除监听是个好习惯，虽然 UI 销毁时通常不需要手动移除 UnityEvent
+        if (m_btn_PlacementSystem != null)
+        {
+            m_btn_PlacementSystem.onClick.RemoveListener(OnPlacementSystemClicked);
         }
     }
 
@@ -58,22 +88,16 @@ class MainPanel : UIPanel
             case ResourceType.Wood:
                 if (m_tmp_WoodNumText != null)
                     m_tmp_WoodNumText.text = evt.NewValue.ToString();
-                else
-                    Debug.LogError("[MainPanel] m_tmp_WoodNumText is null! Check UI Bindings.");
                 break;
 
             case ResourceType.Stone:
                 if (m_tmp_RockNumText != null)
                     m_tmp_RockNumText.text = evt.NewValue.ToString();
-                else
-                    Debug.LogError("[MainPanel] m_tmp_RockNumText is null! Check UI Bindings.");
                 break;
 
             case ResourceType.Gold:
                 if (m_tmp_GoldCoinNumText != null)
                     m_tmp_GoldCoinNumText.text = evt.NewValue.ToString();
-                else
-                    Debug.LogError("[MainPanel] m_tmp_GoldCoinNumText is null! Check UI Bindings.");
                 break;
         }
     }
@@ -93,32 +117,23 @@ class MainPanel : UIPanel
         int wood = resMgr.GetResource(ResourceType.Wood);
         int stone = resMgr.GetResource(ResourceType.Stone);
         int gold = resMgr.GetResource(ResourceType.Gold);
-        int oil = 0;
+        int oil = 0; // 假设石油逻辑还没接
 
         SetResourcesNum(wood, stone, oil, gold);
     }
 
     private void SetResourcesNum(int wood, int rock, int oil, int goldCoin)
     {
-        // 如果组件为空，则输出 Error 日志，便于调试发现问题
         if (m_tmp_WoodNumText != null)
             m_tmp_WoodNumText.text = wood.ToString();
-        else
-            Debug.LogError($"[MainPanel] Resource Update Failed: {nameof(m_tmp_WoodNumText)} is null.");
 
         if (m_tmp_RockNumText != null)
             m_tmp_RockNumText.text = rock.ToString();
-        else
-            Debug.LogError($"[MainPanel] Resource Update Failed: {nameof(m_tmp_RockNumText)} is null.");
 
         if (m_tmp_OilNumText != null)
             m_tmp_OilNumText.text = oil.ToString();
-        else
-            Debug.LogError($"[MainPanel] Resource Update Failed: {nameof(m_tmp_OilNumText)} is null.");
 
         if (m_tmp_GoldCoinNumText != null)
             m_tmp_GoldCoinNumText.text = goldCoin.ToString();
-        else
-            Debug.LogError($"[MainPanel] Resource Update Failed: {nameof(m_tmp_GoldCoinNumText)} is null.");
     }
 }
