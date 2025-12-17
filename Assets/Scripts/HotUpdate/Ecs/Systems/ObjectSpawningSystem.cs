@@ -225,9 +225,6 @@ namespace GameFramework.ECS.Systems
                         resourcePath = ConfigManager.Instance.Tables.BuildingCfg.Get(req.ObjectId)?.ResourceName;
                         break;
                     case PlacementType.Bridge:
-                        // [关键修改] 桥梁特殊处理：默认加载直路模型
-                        // 假设配置表中填的是 "Prefabs/BridgeModel/Model_bridge"
-                        // 我们手动加上后缀 "_zhidao"
                         string basePath = ConfigManager.Instance.Tables.BridgeCfg.Get(req.ObjectId)?.ResourceName;
                         if (!string.IsNullOrEmpty(basePath))
                         {
@@ -245,33 +242,61 @@ namespace GameFramework.ECS.Systems
 
             // B. 计算世界坐标
             float3 worldPos = _gridSystem.CalculateObjectCenterWorldPosition(req.Position, req.Size);
-
-            // [新增] 桥梁可能有特殊的旋转修正 (例如直路默认是竖着的，需要根据输入旋转)
             quaternion rotation = req.Rotation;
-            if (req.Type == PlacementType.Bridge)
-            {
-                // 如果你的直路模型默认是Z轴朝向，这里可能不需要额外修正，直接用 req.Rotation 即可
-                // 如果模型默认是X轴朝向，可能需要 * quaternion.RotateY(math.radians(90))
-            }
-
-            // C. 检查工厂缓存与生成
-            // 注意：这里为了简化，我们暂时用 ObjectId 作为缓存 Key。
-            // 如果以后桥梁有不同形状 (直路/弯路) 但 ID 相同，这种缓存机制需要修改（Key 应该是 ID + 形状后缀）。
-            // 目前先忽略这个问题，因为我们只加载直路。
 
             if (_entityFactory.HasEntity(req.ObjectId))
             {
                 // 简化的碰撞体逻辑
                 float cellSize = _gridConfig.CellSize > 0 ? _gridConfig.CellSize : 1f;
-                float3 colliderSize = new float3(req.Size.x, req.Size.y, req.Size.z) * cellSize;
+                float3 baseSize = new float3(req.Size.x, req.Size.y, req.Size.z) * cellSize;
 
-                var boxGeometry = new BoxGeometry
+                BoxGeometry boxGeometry = default;
+
+                switch (req.Type)
                 {
-                    Center = float3.zero, // 桥梁中心修正
-                    Orientation = quaternion.identity,
-                    Size = new float3(colliderSize.x, 0.5f, colliderSize.z), // 桥梁扁一点
-                    BevelRadius = 0f
-                };
+                    case PlacementType.Island:
+                        // 岛屿：稍微厚一点，中心下沉，作为地面承载物体
+                        boxGeometry = new BoxGeometry
+                        {
+                            Center = new float3(0, -2.1f, 0),
+                            Orientation = quaternion.identity,
+                            Size = new float3(baseSize.x, baseSize.y, baseSize.z),
+                            BevelRadius = 0f
+                        };
+                        break;
+
+                    case PlacementType.Bridge:
+                        // 桥梁：很薄，铺在表面
+                        boxGeometry = new BoxGeometry
+                        {
+                            Center = new float3(0, -1, 0),
+                            Orientation = quaternion.identity,
+                            Size = new float3(baseSize.x, baseSize.y, baseSize.z),
+                            BevelRadius = 0f
+                        };
+                        break;
+
+                    case PlacementType.Building:
+                        // 建筑：完整包围盒，中心上移立在地面上
+                        boxGeometry = new BoxGeometry
+                        {
+                            Center = new float3(0, 2, 0),
+                            Orientation = quaternion.identity,
+                            Size = baseSize,
+                            BevelRadius = 0f
+                        };
+                        break;
+
+                    default:
+                        boxGeometry = new BoxGeometry
+                        {
+                            Center = float3.zero,
+                            Orientation = quaternion.identity,
+                            Size = baseSize,
+                            BevelRadius = 0f
+                        };
+                        break;
+                }
 
                 spawnedEntity = _entityFactory.SpawnColliderEntity(
                     req.ObjectId,

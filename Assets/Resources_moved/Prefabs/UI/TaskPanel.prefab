@@ -33,7 +33,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
-  m_AnchoredPosition: {x: 0, y: 0}
+  m_AnchoredPosition: {x: 0, y: -650}
   m_SizeDelta: {x: 400, y: 150}
   m_Pivot: {x: 0, y: 1}
 --- !u!1 &3867401190984015378
@@ -270,9 +270,9 @@ GameObject:
   m_Component:
   - component: {fileID: 7590624233116553169}
   - component: {fileID: 4938459638569357236}
-  - component: {fileID: 2494361401010274765}
+  - component: {fileID: 537882985108271247}
   m_Layer: 5
-  m_Name: MainPanel 1
+  m_Name: TaskPanel
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
@@ -310,7 +310,7 @@ CanvasGroup:
   m_Interactable: 1
   m_BlocksRaycasts: 1
   m_IgnoreParentGroups: 0
---- !u!114 &2494361401010274765
+--- !u!114 &537882985108271247
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -319,7 +319,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 7590624233116553168}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 72d0760efd788ef45ad0f056ab0f9d3e, type: 3}
+  m_Script: {fileID: 11500000, guid: b7346297f54566746b456812a5f348cc, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
 --- !u!1 &8732509274273894474
@@ -334,7 +334,7 @@ GameObject:
   - component: {fileID: 4712224427402150720}
   - component: {fileID: 7841499374308920741}
   m_Layer: 5
-  m_Name: m_tmp_PlayerName
+  m_Name: m_tmp_TaskContent
   m_TagString: Untagged
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0

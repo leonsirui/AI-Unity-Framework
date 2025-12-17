@@ -117,6 +117,11 @@ MonoBehaviour:
     m_ReadOnly: 0
     m_SerializedLabels: []
     FlaggedDuringContentUpdateRestriction: 0
+  - m_GUID: 90ed07d2efe708f42871e8af9f1dc036
+    m_Address: TaskPanel
+    m_ReadOnly: 0
+    m_SerializedLabels: []
+    FlaggedDuringContentUpdateRestriction: 0
   - m_GUID: 9177299a3b5e4ef46bce65e2fff95573
     m_Address: bridge_300001
     m_ReadOnly: 0
