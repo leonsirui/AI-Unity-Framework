@@ -59,7 +59,7 @@ namespace GameFramework.Managers
         private void OnDestroy()
         {
             _inputActions?.Disable();
-            _inputActions?.Dispose();
+            _inputActions?.Dispose(); 
         }
     }
 }

@@ -19,6 +19,7 @@ public partial class Tables
     public IslandCfg IslandCfg {get; private set; }
     public BuildingCfg BuildingCfg {get; private set; }
     public BridgeCfg BridgeCfg {get; private set; }
+    public GuideCfg Guide_Cfg {get; private set; }
 
     /// public Tables(System.Func<string, ByteBuf> loader)
     public Tables()
@@ -27,6 +28,7 @@ public partial class Tables
         ///        /// IslandCfg = new IslandCfg(loader("islandcfg"));
         ///        /// BuildingCfg = new BuildingCfg(loader("buildingcfg"));
         ///        /// BridgeCfg = new BridgeCfg(loader("bridgecfg"));
+        ///        /// GuideCfg = new GuideCfg(loader("guidecfg"));
         ///        /// ResolveRef();
     }
 
@@ -54,6 +56,11 @@ public partial class Tables
 			BridgeCfg = new BridgeCfg(await loader("bridgecfg")); 
 			tables.Add("BridgeCfg", BridgeCfg);
 		}));
+		list.Add(UniTask.Create(async () =>
+		{
+			Guide_Cfg = new GuideCfg(await loader("guidecfg")); 
+			tables.Add("GuideCfg", Guide_Cfg);
+		}));
 
 		await UniTask.WhenAll(list);
 
@@ -66,6 +73,7 @@ public partial class Tables
         IslandCfg.ResolveRef(this);
         BuildingCfg.ResolveRef(this);
         BridgeCfg.ResolveRef(this);
+        Guide_Cfg.ResolveRef(this);
     }
 }
 

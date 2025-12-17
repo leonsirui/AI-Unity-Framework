@@ -9,12 +9,13 @@
 
 
 
-namespace cfg.uiView
+namespace cfg
 { 
-    public enum ViewName
+    public enum GuideMaskType
     {
-        UILoading = 10000001,
-        UILogin = 10000002,
+        None = 0,
+        Rect = 1,
+        Circle = 2,
     }
 
 } 
