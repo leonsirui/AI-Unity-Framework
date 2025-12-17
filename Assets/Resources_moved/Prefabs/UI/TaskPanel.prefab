@@ -357,7 +357,7 @@ RectTransform:
   m_AnchorMin: {x: 0, y: 1}
   m_AnchorMax: {x: 0, y: 1}
   m_AnchoredPosition: {x: 150, y: -72}
-  m_SizeDelta: {x: 150, y: 60}
+  m_SizeDelta: {x: 288.52, y: 60}
   m_Pivot: {x: 0, y: 0.5}
 --- !u!222 &4712224427402150720
 CanvasRenderer:
@@ -389,8 +389,8 @@ MonoBehaviour:
       m_Calls: []
   m_text: "\u5EFA\u9020\u5C9B\u5C7F"
   m_isRightToLeft: 0
-  m_fontAsset: {fileID: 11400000, guid: 40cf440fc0850f34581352a6b0da715e, type: 2}
-  m_sharedMaterial: {fileID: 7009908043421663785, guid: 40cf440fc0850f34581352a6b0da715e,
+  m_fontAsset: {fileID: 11400000, guid: d27e6c043574cf14cabf3eac843a1ee6, type: 2}
+  m_sharedMaterial: {fileID: -3155920489973199980, guid: d27e6c043574cf14cabf3eac843a1ee6,
     type: 2}
   m_fontSharedMaterials: []
   m_fontMaterial: {fileID: 0}
@@ -421,7 +421,7 @@ MonoBehaviour:
   m_enableAutoSizing: 0
   m_fontSizeMin: 0
   m_fontSizeMax: 72
-  m_fontStyle: 1
+  m_fontStyle: 0
   m_HorizontalAlignment: 1
   m_VerticalAlignment: 512
   m_textAlignment: 65535
