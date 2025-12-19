@@ -19,7 +19,10 @@ public partial class Tables
     public IslandCfg IslandCfg {get; private set; }
     public BuildingCfg BuildingCfg {get; private set; }
     public BridgeCfg BridgeCfg {get; private set; }
-    public GuideCfg Guide_Cfg {get; private set; }
+    public GuideCfg GuideCfg {get; private set; }
+    public ItemCfg ItemCfg {get; private set; }
+    public FactoryCfg FactoryCfg {get; private set; }
+    public ServiceCfg ServiceCfg {get; private set; }
 
     /// public Tables(System.Func<string, ByteBuf> loader)
     public Tables()
@@ -29,6 +32,9 @@ public partial class Tables
         ///        /// BuildingCfg = new BuildingCfg(loader("buildingcfg"));
         ///        /// BridgeCfg = new BridgeCfg(loader("bridgecfg"));
         ///        /// GuideCfg = new GuideCfg(loader("guidecfg"));
+        ///        /// ItemCfg = new ItemCfg(loader("itemcfg"));
+        ///        /// FactoryCfg = new FactoryCfg(loader("factorycfg"));
+        ///        /// ServiceCfg = new ServiceCfg(loader("servicecfg"));
         ///        /// ResolveRef();
     }
 
@@ -58,8 +64,23 @@ public partial class Tables
 		}));
 		list.Add(UniTask.Create(async () =>
 		{
-			Guide_Cfg = new GuideCfg(await loader("guidecfg")); 
-			tables.Add("GuideCfg", Guide_Cfg);
+			GuideCfg = new GuideCfg(await loader("guidecfg")); 
+			tables.Add("GuideCfg", GuideCfg);
+		}));
+		list.Add(UniTask.Create(async () =>
+		{
+			ItemCfg = new ItemCfg(await loader("itemcfg")); 
+			tables.Add("ItemCfg", ItemCfg);
+		}));
+		list.Add(UniTask.Create(async () =>
+		{
+			FactoryCfg = new FactoryCfg(await loader("factorycfg")); 
+			tables.Add("FactoryCfg", FactoryCfg);
+		}));
+		list.Add(UniTask.Create(async () =>
+		{
+			ServiceCfg = new ServiceCfg(await loader("servicecfg")); 
+			tables.Add("ServiceCfg", ServiceCfg);
 		}));
 
 		await UniTask.WhenAll(list);
@@ -73,7 +94,10 @@ public partial class Tables
         IslandCfg.ResolveRef(this);
         BuildingCfg.ResolveRef(this);
         BridgeCfg.ResolveRef(this);
-        Guide_Cfg.ResolveRef(this);
+        GuideCfg.ResolveRef(this);
+        ItemCfg.ResolveRef(this);
+        FactoryCfg.ResolveRef(this);
+        ServiceCfg.ResolveRef(this);
     }
 }
 

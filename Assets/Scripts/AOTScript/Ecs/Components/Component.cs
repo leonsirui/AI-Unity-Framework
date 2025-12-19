@@ -102,7 +102,16 @@ namespace GameFramework.ECS.Components
     }
 
     // 游客相关
-    public enum VisitorState { Idle, Pathfinding, Moving, Arrived }
+    public enum VisitorState
+    {
+        Idle,
+        Pathfinding,
+        Moving,
+        Arrived,
+        // 新增状态
+        Waiting,    // 在建筑排队中
+        BeingServed // 正在接受服务
+    }
 
     public struct VisitorComponent : IComponentData
     {
@@ -111,6 +120,9 @@ namespace GameFramework.ECS.Components
         public float MoveSpeed;
         public VisitorState CurrentState;
         public float StateTimer;
+
+        // 【新增】记录当前前往的目标建筑实体
+        public Entity TargetBuildingEntity;
     }
 
     [InternalBufferCapacity(8)]
@@ -131,4 +143,62 @@ namespace GameFramework.ECS.Components
         public int3 EndPos;
         public bool IsPending;
     }
+
+
+    #region 建筑功能相关组件
+    /// <summary>
+    /// 建筑生产组件
+    /// </summary>
+    public struct ProductionComponent : IComponentData
+    {
+        // 生产配置数据
+        public int InputItemId; // 输入物品ID
+        public int InputCount; // 输入数量
+        public int OutputItemId; // 输出物品ID
+        public int OutputCount; // 输出数量
+        public float ProductionInterval; // 生产周期
+        public int MaxReserves; // 储量上限
+
+        // 生产时数据
+        public float Timer;           // 当前计时
+        public bool IsActive;         // 是否生产中
+        public int CurrentReserves; // 当前储量
+    }
+    /// <summary>
+    /// 服务设施组件
+    /// </summary>
+    public struct ServiceComponent : IComponentData
+    {
+        public int ServiceConfigId;      // 对应的服务配置ID (220001等)
+
+        // --- 配置数据 ---
+        public float ServiceTime;        // 单次服务所需时间
+        public int QueueCapacity;        // 排队队列上限
+        public int MaxConcurrentNum;     // 最大同时服务人数
+
+        // --- 产出配置 (根据csv中的 outputItem: 104;10) ---
+        public int OutputItemId;         // 服务完成后获得的奖励ID
+        public int OutputItemCount;      // 奖励数量
+
+        public bool IsActive;            // 建筑是否激活
+    }
+
+    // === 新增：排队队列 Buffer ===
+    [InternalBufferCapacity(10)] // 预设容量，超过会自动分配堆内存
+    public struct ServiceQueueElement : IBufferElementData
+    {
+        public Entity VisitorEntity;
+    }
+
+    /// <summary>
+    /// 正在服务中的槽位 (支持配置表中的 concurrentlyServiceNum > 1)
+    /// </summary>
+    [InternalBufferCapacity(4)]
+    public struct ServiceSlotElement : IBufferElementData
+    {
+        public Entity VisitorEntity; // 正在服务的游客
+        public float Timer;          // 当前服务进度
+        public bool IsOccupied;      // 槽位是否被占用
+    }
+    #endregion
 }

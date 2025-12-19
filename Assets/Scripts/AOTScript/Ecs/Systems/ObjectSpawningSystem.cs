@@ -21,9 +21,6 @@ namespace GameFramework.ECS.Systems
         private GridEntityVisualizationSystem _visSystem;
         private HashSet<int> _loadingAssets = new HashSet<int>();
 
-        // 定义常量对应 FunctionType (需与热更保持一致)
-        private const int FUNC_VISITOR_CENTER = 1;
-
         protected override void OnCreate()
         {
             base.OnCreate();
@@ -92,10 +89,62 @@ namespace GameFramework.ECS.Systems
                         _gridSystem.RegisterBuilding(req.Position, req.Size, new FixedString64Bytes(req.ObjectId.ToString()));
 
                         int fType = GameConfigBridge.GetBuildingFunctionType(req.ObjectId);
-                        if (fType == FUNC_VISITOR_CENTER)
+                        switch (fType)
                         {
-                            var cfg = GameConfigBridge.GetVisitorCenterConfig(req.ObjectId);
-                            EntityManager.AddComponentData(spawned, new VisitorCenterComponent { UnspawnedVisitorCount = (int)cfg.x, SpawnInterval = cfg.y });
+                            case 1:
+                                var cfg = GameConfigBridge.GetVisitorCenterConfig(req.ObjectId);
+                                EntityManager.AddComponentData(spawned, new VisitorCenterComponent
+                                {
+                                    UnspawnedVisitorCount = (int)cfg.x,
+                                    SpawnInterval = cfg.y
+                                });
+                                break;
+                            case 5:
+                                var srvCfg = GameConfigBridge.GetServiceConfig(req.ObjectId);
+                                if (srvCfg.Found)
+                                {
+                                    // 1. 添加核心服务数据组件
+                                    EntityManager.AddComponentData(spawned, new ServiceComponent
+                                    {
+                                        ServiceConfigId = req.ObjectId, // 或者 srvCfg.FunctionId
+                                        ServiceTime = srvCfg.ServiceTime,
+                                        QueueCapacity = srvCfg.QueueCapacity,
+                                        MaxConcurrentNum = srvCfg.MaxConcurrentNum,
+                                        OutputItemId = srvCfg.OutputItemId,
+                                        OutputItemCount = srvCfg.OutputItemCount,
+                                        IsActive = true
+                                    });
+
+                                    // 2. 添加等待队列 Buffer
+                                    EntityManager.AddBuffer<ServiceQueueElement>(spawned);
+
+                                    // 3. 添加服务槽位 Buffer (用于处理同时服务多人)
+                                    var slots = EntityManager.AddBuffer<ServiceSlotElement>(spawned);
+
+                                    // 初始化空槽位
+                                    for (int k = 0; k < srvCfg.MaxConcurrentNum; k++)
+                                    {
+                                        slots.Add(new ServiceSlotElement
+                                        {
+                                            VisitorEntity = Entity.Null,
+                                            Timer = 0f,
+                                            IsOccupied = false
+                                        });
+                                    }
+                                }
+                                break;
+                            case 6:
+                                if (GameConfigBridge.TryGetFactoryConfig(req.ObjectId, out ProductionComponent prodConfig))
+                                {
+                                    prodConfig.Timer = 0f;
+                                    prodConfig.CurrentReserves = 0;
+                                    prodConfig.IsActive = true;
+                                    EntityManager.AddComponentData(spawned, prodConfig);
+                                }
+                                break;
+                            default:
+                                // 普通装饰性建筑，无特殊逻辑
+                                break;
                         }
 
                         EntityManager.AddComponentData(spawned, new BuildingComponent { ConfigId = req.ObjectId, Size = req.Size, FuncType = fType });
