@@ -23,6 +23,9 @@ namespace GameFramework.ECS.Systems
         private GridEntityVisualizationSystem _visSystem;
         private HashSet<int> _loadingAssets = new HashSet<int>();
 
+        // [新增] 用于记录已经完成“数据注册”但还在等待“资源加载”的请求实体
+        private HashSet<Entity> _processedRequests = new HashSet<Entity>();
+
         protected override void OnCreate()
         {
             base.OnCreate();
@@ -52,88 +55,286 @@ namespace GameFramework.ECS.Systems
             var entities = query.ToEntityArray(Allocator.Temp);
             var requests = query.ToComponentDataArray<PlaceObjectRequest>(Allocator.Temp);
 
-            // 只有当检测到请求时才打印，避免刷屏
-            Debug.Log($"[ObjectSpawningSystem] 检测到 {entities.Length} 个生成请求...");
+            Debug.Log($"[ObjectSpawningSystem] 本帧处理 {entities.Length} 个生成请求...");
 
+            // 第一轮循环：优先处理岛屿 (Islands)
             for (int i = 0; i < entities.Length; i++)
             {
-                var entity = entities[i];
-                var req = requests[i];
-                bool processed = false;
-
-                if (req.Type == PlacementType.Island)
+                if (requests[i].Type == PlacementType.Island)
                 {
-                    Debug.Log($"[Spawn-Island] 处理岛屿请求 ID:{req.ObjectId} Pos:{req.Position} Size:{req.Size}");
+                    ProcessIslandRequest(entities[i], requests[i]);
+                }
+            }
 
-                    // 1. 检查位置是否合法
-                    if (!_gridSystem.CheckIslandPlacement(req.Position, req.Size, req.AirspaceHeight))
+            // 第二轮循环：处理其他物体 (Buildings, Bridges)
+            for (int i = 0; i < entities.Length; i++)
+            {
+                if (requests[i].Type != PlacementType.Island)
+                {
+                    ProcessOtherRequest(entities[i], requests[i]);
+                }
+            }
+
+            entities.Dispose();
+            requests.Dispose();
+        }
+
+        private void ProcessIslandRequest(Entity entity, PlaceObjectRequest req)
+        {
+            if (!_processedRequests.Contains(entity))
+            {
+                Debug.Log($"[Spawn-Island] 处理岛屿逻辑注册 ID:{req.ObjectId} Pos:{req.Position}");
+
+                if (!_gridSystem.CheckIslandPlacement(req.Position, req.Size, req.AirspaceHeight))
+                {
+                    Debug.LogError($"[Spawn-Island] ❌ 位置检测失败！坐标 {req.Position} 可能超出边界或重叠。");
+                    EntityManager.DestroyEntity(entity);
+                    return;
+                }
+
+                var islandBaseData = ConfigManager.Instance.Tables.TbIsland.GetOrDefault(req.ObjectId);
+                if (islandBaseData != null)
+                {
+                    _gridSystem.RegisterIsland(req.Position, islandBaseData, req.RotationIndex);
+                    _processedRequests.Add(entity);
+                }
+                else
+                {
+                    Debug.LogError($"[Spawn-Island] ❌ 找不到配置 ID:{req.ObjectId}");
+                    EntityManager.DestroyEntity(entity);
+                    return;
+                }
+            }
+
+            if (TrySpawnObject(req, out Entity spawned))
+            {
+                Debug.Log($"[Spawn-Island] ✅ 实体生成成功！Entity: {spawned}");
+
+                InitializeIslandLogicAttributes(spawned);
+                EntityManager.AddComponentData(spawned, new IslandComponent
+                {
+                    ConfigId = req.ObjectId,
+                    Size = req.Size,
+                    AirSpace = req.AirspaceHeight
+                });
+
+                if (EntityManager.HasComponent<IslandStatusComponent>(entity))
+                {
+                    var status = EntityManager.GetComponentData<IslandStatusComponent>(entity);
+                    EntityManager.AddComponentData(spawned, status);
+                }
+                else
+                {
+                    EntityManager.AddComponentData(spawned, new IslandStatusComponent
                     {
-                        Debug.LogError($"[Spawn-Island] ❌ 位置检测失败！坐标 {req.Position} 可能超出边界或重叠。请检查 GridSystem 配置 (地图大小) 和服务器坐标。");
-                        // 即使失败也销毁请求，防止死循环报错
-                        EntityManager.DestroyEntity(entity);
-                        continue;
+                        State = 1,
+                        CreateTime = (long)System.DateTime.UtcNow.Subtract(new System.DateTime(1970, 1, 1)).TotalSeconds
+                    });
+                }
+
+                EntityManager.DestroyEntity(entity);
+                _processedRequests.Remove(entity);
+            }
+            else
+            {
+                Debug.LogWarning($"[Spawn-Island] ⏳ 资源加载中 ID:{req.ObjectId}...");
+            }
+        }
+
+        private void ProcessOtherRequest(Entity entity, PlaceObjectRequest req)
+        {
+            if (req.Type == PlacementType.Building)
+            {
+                Debug.Log($"[Spawn-Building] 处理建筑请求 ID:{req.ObjectId} Pos:{req.Position}");
+
+                int3 end = req.Position + req.Size - new int3(1, 1, 1);
+                if (!_gridSystem.IsBuildingBuildable(req.Position, end))
+                {
+                    Debug.LogError($"[Spawn-Building] ❌ 建筑位置检测失败: Start:{req.Position} End:{end} (请检查脚下是否有岛屿)");
+                    EntityManager.DestroyEntity(entity);
+                    return;
+                }
+
+                if (TrySpawnObject(req, out Entity spawned))
+                {
+                    _gridSystem.RegisterBuilding(req.Position, req.Size, new FixedString64Bytes(req.ObjectId.ToString()));
+
+                    var buildCfg = ConfigManager.Instance.Tables.TbBuild.GetOrDefault(req.ObjectId);
+
+                    EntityManager.AddComponentData(spawned, new BuildingComponent
+                    {
+                        ConfigId = req.ObjectId,
+                        Size = req.Size,
+                        BuildingType = (int)buildCfg.BuildingType,
+                        BuildingSubtype = (int)buildCfg.BuildingSubtype,
+                        Name = new FixedString64Bytes(buildCfg.Name)
+                    });
+
+                    var levelCfg = ConfigManager.Instance.Tables.TbBuildingLevel.GetOrDefault(req.ObjectId);
+                    if (levelCfg != null)
+                    {
+                        if (levelCfg.Prosperity > 0)
+                            EntityManager.AddComponentData(spawned, new ProsperityComponent { Value = levelCfg.Prosperity });
+
+                        if (levelCfg.PowerConsumption > 0)
+                            EntityManager.AddComponentData(spawned, new ElectricityComponent { PowerConsumption = levelCfg.PowerConsumption, IsPowered = true });
                     }
 
-                    // 2. 尝试生成物体 (包含资源加载)
-                    if (TrySpawnObject(req, out Entity spawned))
+                    int bType = (int)buildCfg.BuildingType;
+                    int subtype = (int)buildCfg.BuildingSubtype;
+
+                    switch (bType)
                     {
-                        Debug.Log($"[Spawn-Island] ✅ 实体生成成功！Entity: {spawned}");
-                        var islandBaseData = ConfigManager.Instance.Tables.TbIsland.GetOrDefault(req.ObjectId);
-                        if (islandBaseData != null)
-                        {
-                            _gridSystem.RegisterIsland(req.Position, islandBaseData, req.RotationIndex);
-                            InitializeIslandLogicAttributes(spawned);
-                            EntityManager.AddComponentData(spawned, new IslandComponent
+                        case 1: // Core
+                            if (subtype == 1)
                             {
-                                ConfigId = req.ObjectId,
-                                Size = req.Size,
-                                AirSpace = req.AirspaceHeight
-                            });
-                            processed = true;
-                        }
-                    }
-                    else
-                    {
-                        Debug.LogWarning($"[Spawn-Island] ⏳ 资源未就绪，正在异步加载 ID:{req.ObjectId}...");
-                    }
-                }
-                else if (req.Type == PlacementType.Building)
-                {
-                    // 建筑逻辑保持简化，用于排查
-                    int3 end = req.Position + req.Size - new int3(1, 1, 1);
-                    if (!_gridSystem.IsBuildingBuildable(req.Position, end))
-                    {
-                        Debug.LogError($"[Spawn-Building] ❌ 建筑位置检测失败: {req.Position}");
-                        EntityManager.DestroyEntity(entity);
-                        continue;
+                                var cfgVisitor = new float2(5, 2.0f);
+                                EntityManager.AddComponentData(spawned, new VisitorCenterComponent
+                                {
+                                    UnspawnedVisitorCount = (int)cfgVisitor.x,
+                                    SpawnInterval = cfgVisitor.y
+                                });
+                            }
+                            break;
+
+                        case 2: // Supply
+                            break;
+
+                        case 3: // Factory
+                            if (levelCfg != null)
+                            {
+                                int totalStorage = 0;
+                                foreach (var store in levelCfg.OutputStorage) { if (store.Count >= 2) totalStorage += store[1]; }
+                                if (totalStorage <= 0) totalStorage = 50;
+
+                                EntityManager.AddComponentData(spawned, new ProductionComponent
+                                {
+                                    ProductionInterval = (float)levelCfg.OutputCycle,
+                                    MaxReserves = levelCfg.OutputStorage.Count > 0 && levelCfg.OutputStorage[0].Count > 0 ? levelCfg.OutputStorage[0][0] : 0,
+                                    JobSlots = levelCfg.JobSlots,
+                                    DemandOccupation = (int)levelCfg.DemandOccupation,
+                                    IsActive = true,
+                                    Timer = 0f
+                                });
+
+                                if (levelCfg.IslandAffinity.Count > 0)
+                                {
+                                    var affinityBuffer = EntityManager.AddBuffer<IslandAffinityElement>(spawned);
+                                    foreach (var affinity in levelCfg.IslandAffinity)
+                                        affinityBuffer.Add(new IslandAffinityElement { IslandType = (int)affinity });
+                                }
+
+                                if (levelCfg.ItemCost.Count > 0)
+                                {
+                                    var inputBuffer = EntityManager.AddBuffer<ProductionInputElement>(spawned);
+                                    foreach (var input in levelCfg.ItemCost)
+                                    {
+                                        if (input.Count >= 2)
+                                            inputBuffer.Add(new ProductionInputElement { ItemId = input[0], Count = input[1] });
+                                    }
+                                }
+
+                                if (levelCfg.OutPut.Count > 0)
+                                {
+                                    var outputBuffer = EntityManager.AddBuffer<ProductionOutputElement>(spawned);
+                                    foreach (var output in levelCfg.OutPut)
+                                    {
+                                        if (output.Count >= 2)
+                                            outputBuffer.Add(new ProductionOutputElement { ItemId = output[0], CountPerCycle = output[1], CurrentStorage = 0 });
+                                    }
+                                }
+                            }
+                            break;
+
+                        case 4: // Service
+                            if (levelCfg != null)
+                            {
+                                int totalStorage = 0;
+                                foreach (var store in levelCfg.OutputStorage) { if (store.Count >= 2) totalStorage += store[1]; }
+                                if (totalStorage <= 0) totalStorage = 20;
+
+                                EntityManager.AddComponentData(spawned, new ProductionComponent
+                                {
+                                    ProductionInterval = (float)levelCfg.OutputCycle,
+                                    MaxReserves = totalStorage,
+                                    JobSlots = levelCfg.JobSlots,
+                                    DemandOccupation = (int)levelCfg.DemandOccupation,
+                                    IsActive = true,
+                                    Timer = 0f
+                                });
+
+                                if (levelCfg.ItemCost.Count > 0)
+                                {
+                                    var inBuf = EntityManager.AddBuffer<ProductionInputElement>(spawned);
+                                    foreach (var v in levelCfg.ItemCost)
+                                        if (v.Count >= 2) inBuf.Add(new ProductionInputElement { ItemId = v[0], Count = v[1] });
+                                }
+
+                                if (levelCfg.OutPut.Count > 0)
+                                {
+                                    var outBuf = EntityManager.AddBuffer<ProductionOutputElement>(spawned);
+                                    foreach (var v in levelCfg.OutPut)
+                                        if (v.Count >= 2) outBuf.Add(new ProductionOutputElement { ItemId = v[0], CountPerCycle = v[1], CurrentStorage = 0 });
+                                }
+
+                                if (levelCfg.IslandAffinity.Count > 0)
+                                {
+                                    var affBuf = EntityManager.AddBuffer<IslandAffinityElement>(spawned);
+                                    foreach (var v in levelCfg.IslandAffinity) affBuf.Add(new IslandAffinityElement { IslandType = (int)v });
+                                }
+
+                                int outId = 0;
+                                int outCount = 0;
+                                if (levelCfg.OutPut.Count > 0 && levelCfg.OutPut[0].Count >= 2)
+                                {
+                                    outId = levelCfg.OutPut[0][0];
+                                    outCount = levelCfg.OutPut[0][1];
+                                }
+
+                                EntityManager.AddComponentData(spawned, new ServiceComponent
+                                {
+                                    ServiceConfigId = req.ObjectId,
+                                    ServiceTime = (float)levelCfg.DwellTime,
+                                    MaxVisitorCapacity = levelCfg.VisitorCapacity,
+                                    OutputItemId = outId,
+                                    OutputItemCount = outCount,
+                                    IsActive = true,
+                                    IsServing = false,
+                                    ServiceTimer = 0f
+                                });
+                                EntityManager.AddBuffer<ServiceQueueElement>(spawned);
+                            }
+                            break;
                     }
 
-                    if (TrySpawnObject(req, out Entity spawned))
-                    {
-                        _gridSystem.RegisterBuilding(req.Position, req.Size, new FixedString64Bytes(req.ObjectId.ToString()));
-
-                        // 为了防止 Log 刷屏，这里省略详细组件添加代码，只做基础标记
-                        var buildCfg = ConfigManager.Instance.Tables.TbBuild.GetOrDefault(req.ObjectId);
-                        EntityManager.AddComponentData(spawned, new BuildingComponent
-                        {
-                            ConfigId = req.ObjectId,
-                            Size = req.Size,
-                            BuildingType = (int)buildCfg.BuildingType,
-                            Name = new FixedString64Bytes(buildCfg.Name)
-                        });
-
-                        processed = true;
-                    }
-                }
-                // ... (Bridge 逻辑省略) ...
-
-                if (processed)
-                {
                     EntityManager.DestroyEntity(entity);
                 }
             }
-            entities.Dispose();
-            requests.Dispose();
+            else if (req.Type == PlacementType.Bridge)
+            {
+                Debug.Log($"[Spawn-Bridge] 处理桥梁请求 ID:{req.ObjectId} Pos:{req.Position}");
+
+                if (!_gridSystem.IsBridgeBuildable(req.Position))
+                {
+                    Debug.LogError($"[Spawn-Bridge] ❌ 桥梁位置检测失败: {req.Position}");
+                    EntityManager.DestroyEntity(entity);
+                    return;
+                }
+
+                if (TrySpawnObject(req, out Entity spawned))
+                {
+                    _gridSystem.RegisterBridge(req.Position, new FixedString64Bytes(req.ObjectId.ToString()));
+
+                    // [修复] 调用正确的刷新方法，且不需要传递 int2 参数
+                    if (_visSystem != null)
+                    {
+                        _visSystem.ShowBridgeableGrids(true);
+                    }
+
+                    EntityManager.AddComponentData(spawned, new BridgeComponent { ConfigId = req.ObjectId });
+                    EntityManager.DestroyEntity(entity);
+                }
+            }
         }
 
         private void InitializeIslandLogicAttributes(Entity islandEntity)
@@ -158,7 +359,6 @@ namespace GameFramework.ECS.Systems
             spawned = Entity.Null;
             string path = "";
 
-            // 获取资源路径
             if (req.Type == PlacementType.Building)
                 path = ConfigManager.Instance.Tables.TbBuild.GetOrDefault(req.ObjectId)?.ResourceName;
             else if (req.Type == PlacementType.Island)
@@ -169,23 +369,32 @@ namespace GameFramework.ECS.Systems
             if (string.IsNullOrEmpty(path))
             {
                 Debug.LogError($"[Spawn] ❌ 配置表中找不到资源路径！Type:{req.Type} ID:{req.ObjectId}");
-                return true; // 返回 true 以便让外层销毁这个错误的请求
+                return true;
             }
 
             float3 worldPos = _gridSystem.CalculateObjectCenterWorldPosition(req.Position, req.Size);
 
-            // 检查 EntityFactory 是否已经缓存了该 Prefab 的 Archetype
+            if (req.Type == PlacementType.Island)
+            {
+                worldPos.y += 1f;
+            }
+
             if (_entityFactory.HasEntity(req.ObjectId))
             {
                 float s = _gridConfig.CellSize;
                 float3 size = new float3(req.Size.x, req.Size.y, req.Size.z) * s;
-                var box = new BoxGeometry { Center = float3.zero, Orientation = quaternion.identity, Size = new float3(size.x, 0.5f, size.z) };
 
-                // 真正生成 Entity
+                float3 colliderCenter = float3.zero;
+                if (req.Type == PlacementType.Island)
+                {
+                    colliderCenter = new float3(0, -1f, 0);
+                }
+
+                var box = new BoxGeometry { Center = colliderCenter, Orientation = quaternion.identity, Size = new float3(size.x, 0.5f, size.z) };
+
                 spawned = _entityFactory.SpawnColliderEntity(req.ObjectId, worldPos, req.Rotation, box);
             }
 
-            // 如果还没有缓存，或者生成失败
             if (spawned == Entity.Null)
             {
                 if (!_loadingAssets.Contains(req.ObjectId))
@@ -194,7 +403,7 @@ namespace GameFramework.ECS.Systems
                     _loadingAssets.Add(req.ObjectId);
                     LoadAsset(req.ObjectId, path).Forget();
                 }
-                return false; // 返回 false 表示本次未完成，下一帧继续尝试
+                return false;
             }
 
             EntityManager.AddComponentData(spawned, new GridPositionComponent { Value = req.Position });

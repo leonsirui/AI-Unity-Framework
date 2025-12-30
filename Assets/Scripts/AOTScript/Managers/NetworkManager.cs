@@ -13,43 +13,69 @@ namespace GameFramework.Managers
         // ===================================================================================
         // 1. 配置与状态
         // ===================================================================================
-        private const string SERVER_IP = "192.168.10.116";
-        private const int SERVER_PORT = 8009;
+
+        private const string LOGIN_SERVER_IP = "192.168.10.116";
+        private const int LOGIN_SERVER_PORT = 8009;
+
+        private string _currentIp = LOGIN_SERVER_IP;
+        private int _currentPort = LOGIN_SERVER_PORT;
 
         private string _accessToken = "";
+
         public List<ServerDTO> CachedServerList { get; private set; } = new List<ServerDTO>();
         public GamesDTO CurrentGameData { get; private set; }
 
         public bool IsConnected => true;
 
         // ===================================================================================
-        // 2. 事件定义 (分离登录和游戏数据事件)
+        // 2. 事件定义
         // ===================================================================================
-        public event Action OnLoginSuccess;             // 登录成功，UI应刷新服务器列表
-        public event Action<GamesDTO> OnGameDataReceived; // 收到游戏数据(JoinGame, Sync等)，UI应进入游戏
+        public event Action OnLoginSuccess;
+        public event Action<GamesDTO> OnGameDataReceived;
 
         // ===================================================================================
-        // 3. 公开业务接口 (明确区分)
+        // 3. 公开业务接口
         // ===================================================================================
 
         public void Initialize()
         {
             Debug.Log("[NetworkManager] 初始化，自动开始登录流程...");
-            // 自动登录
-            SendLogin("test_user", "123456");
+            SendLogin("1930616513", "lzhlzh617");
         }
 
-        /// <summary>
-        /// 1. 专用登录接口：返回 UserLoginResultDTO (含服务器列表)
-        /// </summary>
+        public void SwitchServer(ServerDTO targetServer)
+        {
+            if (targetServer == null)
+            {
+                Debug.LogError("[NetworkManager] 试图切换到一个空的服务器配置！");
+                return;
+            }
+
+            _currentIp = targetServer.ip;
+
+            if (int.TryParse(targetServer.port, out int port))
+            {
+                _currentPort = port;
+            }
+            else
+            {
+                Debug.LogError($"[NetworkManager] 服务器端口解析失败: {targetServer.port}，将使用默认端口 80");
+                _currentPort = 80;
+            }
+
+            Debug.Log($"[NetworkManager] ===> 已切换至服务器: {targetServer.name} ({_currentIp}:{_currentPort}) <===");
+        }
+
         public async void SendLogin(string username, string password)
         {
+            _currentIp = LOGIN_SERVER_IP;
+            _currentPort = LOGIN_SERVER_PORT;
+
             var dto = new UserLoginDTO { username = username, password = password };
             string jsonBody = JsonUtility.ToJson(dto);
 
-            Debug.Log($"[NetworkManager] 发送登录请求...");
+            Debug.Log($"[NetworkManager] 发送登录请求至 {_currentIp}:{_currentPort}...");
 
-            // 发送请求，指定返回类型为 UserLoginResultDTO
             var response = await PostAsync<UserLoginResultDTO>("/user/login", jsonBody, false);
 
             if (response != null && response.status == "success")
@@ -57,8 +83,6 @@ namespace GameFramework.Managers
                 _accessToken = response.result.access_token;
                 CachedServerList = response.result.server_list;
                 Debug.Log($"[NetworkManager] 登录成功，获取到 {CachedServerList.Count} 个服务器");
-
-                // 触发登录成功事件
                 OnLoginSuccess?.Invoke();
             }
             else
@@ -67,25 +91,26 @@ namespace GameFramework.Managers
             }
         }
 
-        /// <summary>
-        /// 2. 通用游戏请求接口：返回 GamesDTO (如 JoinGame, createBuilding 等)
-        /// </summary>
-        /// <param name="url">接口地址，如 /player/joinGame</param>
-        /// <param name="dto">请求参数对象</param>
         public async void SendGameRequest(string url, object dto)
         {
-            string jsonBody = JsonUtility.ToJson(dto);
-            Debug.Log($"[NetworkManager] 发送业务请求: {url}");
+            if (_currentIp == LOGIN_SERVER_IP && url.Contains("joinGame"))
+            {
+                Debug.LogWarning("[NetworkManager] 警告：你正在向 [登录服] 发送 JoinGame 请求！请检查 ServerSelectPanel 是否正确调用了 SwitchServer。");
+            }
 
-            // 发送请求，指定返回类型为 GamesDTO
+            string jsonBody = JsonUtility.ToJson(dto);
+            Debug.Log($"[NetworkManager] 发送业务请求: {url} -> {_currentIp}:{_currentPort}");
+
             var response = await PostAsync<GamesDTO>(url, jsonBody, true);
 
             if (response != null && response.status == "success")
             {
                 Debug.Log($"[NetworkManager] 请求成功 ({url})，更新游戏数据");
-                CurrentGameData = response.result;
 
-                // 触发游戏数据更新事件
+                // [核心修改] 检查并更新 Token
+                CheckAndRefreshToken(response.result);
+
+                CurrentGameData = response.result;
                 OnGameDataReceived?.Invoke(response.result);
             }
             else
@@ -95,7 +120,48 @@ namespace GameFramework.Managers
         }
 
         // ===================================================================================
-        // 4. 底层网络实现 (泛型化，处理粘包和反序列化)
+        // [新增] 泛型异步接口，供业务系统直接 await 使用 (PlacementSystem)
+        // ===================================================================================
+        public async UniTask<T> SendAsync<T>(string url, object requestDto)
+        {
+            if (_currentIp == LOGIN_SERVER_IP && url.Contains("create"))
+            {
+                Debug.LogWarning("[NetworkManager] 警告：正在向登录服发送创建请求！请检查是否已选服。");
+            }
+
+            string jsonBody = JsonUtility.ToJson(requestDto);
+            Debug.Log($"[NetworkManager] SendAsync请求: {url} | Body: {jsonBody}");
+
+            var response = await PostAsync<T>(url, jsonBody, true);
+
+            if (response != null && response.status == "success")
+            {
+                // [核心修改] 如果返回类型是 GamesDTO，尝试更新 Token
+                if (response.result is GamesDTO gamesDto)
+                {
+                    CheckAndRefreshToken(gamesDto);
+                }
+                return response.result;
+            }
+            else
+            {
+                Debug.LogError($"[NetworkManager] SendAsync失败 {url}: {response?.message}");
+                return default;
+            }
+        }
+
+        // 辅助方法：提取 Token
+        private void CheckAndRefreshToken(GamesDTO data)
+        {
+            if (data != null && data.tokenResult != null && !string.IsNullOrEmpty(data.tokenResult.access_token))
+            {
+                _accessToken = data.tokenResult.access_token;
+                Debug.Log($"[NetworkManager] Token 已自动刷新: {_accessToken.Substring(0, 10)}...");
+            }
+        }
+
+        // ===================================================================================
+        // 4. 底层网络实现
         // ===================================================================================
         private async UniTask<ServerResponse<T>> PostAsync<T>(string url, string jsonBody, bool needAuth)
         {
@@ -103,13 +169,13 @@ namespace GameFramework.Managers
             {
                 try
                 {
-                    await client.ConnectAsync(SERVER_IP, SERVER_PORT);
+                    await client.ConnectAsync(_currentIp, _currentPort);
+
                     using (NetworkStream stream = client.GetStream())
                     {
-                        // 构造 HTTP 头
                         StringBuilder sb = new StringBuilder();
                         sb.Append($"POST {url} HTTP/1.1\r\n");
-                        sb.Append($"Host: {SERVER_IP}:{SERVER_PORT}\r\n");
+                        sb.Append($"Host: {_currentIp}:{_currentPort}\r\n");
                         sb.Append("Content-Type: application/json\r\n");
                         if (needAuth && !string.IsNullOrEmpty(_accessToken))
                         {
@@ -119,12 +185,10 @@ namespace GameFramework.Managers
                         sb.Append($"Content-Length: {bodyBytes.Length}\r\n");
                         sb.Append("Connection: close\r\n\r\n");
 
-                        // 发送
                         byte[] headerBytes = Encoding.UTF8.GetBytes(sb.ToString());
                         await stream.WriteAsync(headerBytes, 0, headerBytes.Length);
                         await stream.WriteAsync(bodyBytes, 0, bodyBytes.Length);
 
-                        // 接收
                         using (MemoryStream ms = new MemoryStream())
                         {
                             byte[] buffer = new byte[8192];
@@ -138,6 +202,7 @@ namespace GameFramework.Managers
                             if (totalData.Length > 0)
                             {
                                 string rawResponse = Encoding.UTF8.GetString(totalData);
+                                Debug.Log($"[NetworkManager] 收到响应 [{url}]:\n{rawResponse}");
                                 return ParseServerResponse<T>(rawResponse);
                             }
                         }
@@ -145,7 +210,7 @@ namespace GameFramework.Managers
                 }
                 catch (Exception e)
                 {
-                    Debug.LogError($"[NetworkManager] 网络异常: {e.Message}");
+                    Debug.LogError($"[NetworkManager] 网络异常 [{_currentIp}:{_currentPort}]: {e.Message}");
                 }
             }
             return null;
@@ -155,7 +220,6 @@ namespace GameFramework.Managers
         {
             try
             {
-                // 分离 HTTP 头
                 string jsonBody = rawMsg;
                 int headerEnd = rawMsg.IndexOf("\r\n\r\n");
                 if (headerEnd != -1) jsonBody = rawMsg.Substring(headerEnd + 4);
@@ -163,7 +227,6 @@ namespace GameFramework.Managers
 
                 if (string.IsNullOrEmpty(jsonBody)) return null;
 
-                // 反序列化泛型结构
                 return JsonUtility.FromJson<ServerResponse<T>>(jsonBody);
             }
             catch (Exception e)
@@ -175,7 +238,7 @@ namespace GameFramework.Managers
     }
 
     // ===================================================================================
-    // DTO 定义 (保持)
+    // DTO 定义
     // ===================================================================================
     [Serializable]
     public class ServerResponse<T>
@@ -203,14 +266,24 @@ namespace GameFramework.Managers
 
     [Serializable] public class JoinGameDTO { public int server_id; }
 
+    // [新增] Token结果DTO
+    [Serializable]
+    public class TokenResultDTO
+    {
+        public string access_token;
+        public int expires_in;
+    }
+
     [Serializable]
     public class GamesDTO
     {
+        // [新增] 对应 Swagger 中的 tokenResult
+        public TokenResultDTO tokenResult;
+
         public PlayerDTO Player;
         public List<TileDTO> Tile;
         public List<BuildingDTO> Building;
         public List<ItemDTO> Item;
-        // 其他字段按需添加...
     }
 
     [Serializable]
@@ -230,14 +303,22 @@ namespace GameFramework.Managers
     {
         public string _id;
         public int tile_id;
+
+        // [新增] 必须添加这个字段，否则无法读取服务器返回的类型信息
         public int tile_type;
-        public int level;
+
+        public int tile_index;
         public int is_fixed;
+        public int level;
         public int posX;
         public int posY;
         public int posZ;
         public int state;
-        // ... 其他字段
+        public long start_time;
+        public long end_time;
+        public long create_time;
+        public int videoCount;
+        public int continueState;
     }
 
     [Serializable]
@@ -250,10 +331,12 @@ namespace GameFramework.Managers
         public int posX;
         public int posY;
         public int posZ;
-        public int rotate; // [关键修复] 之前缺失的字段
+        public int rotate;
         public int state;
         public long start_time;
+        public long startProduceTime;
         public long end_time;
+        public int videoCount;
         public int PowerState;
     }
 
@@ -265,5 +348,30 @@ namespace GameFramework.Managers
         public int item_id;
         public int count;
         public int used;
+    }
+
+    [Serializable]
+    public class BuildingCreateDTO
+    {
+        public int building_id;
+        public int posX;
+        public int posY;
+        public int posZ;
+        public int rotate;
+    }
+
+    [Serializable]
+    public class TileCreateDTO
+    {
+        // [修正] Swagger定义为 tile_type，原代码为 tile_id
+        public int tile_type;
+        public int posX;
+        public int posY;
+        public int posZ;
+    }
+    [Serializable]
+    public class TileUpLevelDTO
+    {
+        public string _id; // 必须匹配 Swagger 接口要求的字段名
     }
 }

@@ -30,7 +30,7 @@ namespace GameFramework.ECS.Systems
         private bool _isFirstFrameAfterLoad = false;
 
         private quaternion _defaultRotation = quaternion.identity;
-        private int _currentPlacementLayer = 4;
+        private int _currentPlacementLayer = 5;
 
         private UnityEngine.Material _validMat;
         private UnityEngine.Material _invalidMat;
@@ -162,7 +162,7 @@ namespace GameFramework.ECS.Systems
             int3 finalSize = (state.RotationIndex % 2 == 1) ? new int3(baseSize.z, baseSize.y, baseSize.x) : baseSize;
             state.IsPositionValid = ValidatePosition(state.Type, state.CurrentGridPos, finalSize);
 
-            UpdatePreviewTransform(state.CurrentGridPos, finalSize, state.RotationIndex, gridConfig.CellSize);
+            UpdatePreviewTransform(state.CurrentGridPos, finalSize, state.RotationIndex, gridConfig.CellSize, state.Type);
             UpdatePreviewMaterial(state.IsPositionValid);
         }
 
@@ -208,7 +208,7 @@ namespace GameFramework.ECS.Systems
             state.CurrentGridPos = targetGridPos;
             state.IsPositionValid = ValidatePosition(state.Type, targetGridPos, finalSize);
 
-            UpdatePreviewTransform(targetGridPos, finalSize, state.RotationIndex, gridConfig.CellSize);
+            UpdatePreviewTransform(targetGridPos, finalSize, state.RotationIndex, gridConfig.CellSize, state.Type);
             UpdatePreviewMaterial(state.IsPositionValid);
         }
 
@@ -266,64 +266,181 @@ namespace GameFramework.ECS.Systems
                 int3 baseSize = GetObjectSizeFromConfig(state.CurrentObjectId, state.Type);
                 int3 finalSize = (state.RotationIndex % 2 == 1) ? new int3(baseSize.z, baseSize.y, baseSize.x) : baseSize;
                 state.IsPositionValid = ValidatePosition(state.Type, state.CurrentGridPos, finalSize);
-                UpdatePreviewTransform(state.CurrentGridPos, finalSize, state.RotationIndex, gridConfig.CellSize);
+                UpdatePreviewTransform(state.CurrentGridPos, finalSize, state.RotationIndex, gridConfig.CellSize, state.Type);
                 UpdatePreviewMaterial(state.IsPositionValid);
             }
         }
 
-        // [新增] 异步刷新桥梁显示
-        private async UniTaskVoid RefreshBridgeVisualsAsync()
+        private async UniTaskVoid RefreshBridgeVisualsAsync(int3 checkPos)
         {
-            // 等待一帧，确保 PlaceObjectRequest 被处理，GridSystem 数据已更新
-            await UniTask.NextFrame();
+            float timeout = 3.0f;
+            float timer = 0f;
 
-            // 检查状态：确保玩家还在造桥模式中
+            while (_gridSystem.IsBridgeBuildable(checkPos) && timer < timeout)
+            {
+                await UniTask.NextFrame();
+                timer += UnityEngine.Time.deltaTime;
+            }
+
             if (!SystemAPI.HasSingleton<PlacementStateComponent>()) return;
+
             var state = SystemAPI.GetSingleton<PlacementStateComponent>();
 
             if (state.IsActive && state.Type == PlacementType.Bridge)
             {
-                // 这里调用的是带参数的方法，需要 GridEntityVisualizationSystem 对应修改
                 _gridVisSystem?.ShowBridgeableGrids(true);
+
+                var gridConfig = SystemAPI.GetSingleton<GridConfigComponent>();
+                int3 baseSize = GetObjectSizeFromConfig(state.CurrentObjectId, state.Type);
+                int3 finalSize = (state.RotationIndex % 2 == 1) ? new int3(baseSize.z, baseSize.y, baseSize.x) : baseSize;
+
+                state.IsPositionValid = ValidatePosition(state.Type, state.CurrentGridPos, finalSize);
+
+                SystemAPI.SetSingleton(state);
+
+                UpdatePreviewTransform(state.CurrentGridPos, finalSize, state.RotationIndex, gridConfig.CellSize, state.Type);
+                UpdatePreviewMaterial(state.IsPositionValid);
+
+                Debug.Log($"[PlacementSystem] 桥梁网格刷新完成，当前位置有效性: {state.IsPositionValid}");
             }
         }
 
-        // [修改] 确认放置逻辑
-        public bool ConfirmPlacement()
+        private (cfg.Island config, int visualId) GetIslandConfigWithFallback(int objectId)
         {
-            if (!SystemAPI.HasSingleton<PlacementStateComponent>()) return true;
+            var cfg = ConfigManager.Instance.Tables.TbIsland.GetOrDefault(objectId);
+            if (cfg != null) return (cfg, objectId);
+
+            var levelCfg = ConfigManager.Instance.Tables.TbIslandLevel.GetOrDefault(objectId);
+            if (levelCfg != null)
+            {
+                var defaultCfg = ConfigManager.Instance.Tables.TbIsland.GetOrDefault(101001);
+                if (defaultCfg != null) return (defaultCfg, 101001);
+            }
+
+            return (null, 0);
+        }
+
+        public async UniTask ConfirmPlacement()
+        {
+            if (!SystemAPI.HasSingleton<PlacementStateComponent>()) return;
+
             var stateRef = SystemAPI.GetSingletonRW<PlacementStateComponent>();
-            ref var state = ref stateRef.ValueRW;
-            if (!state.IsActive || !state.IsPositionValid) return false;
+            var state = stateRef.ValueRO;
 
-            var gridConfig = SystemAPI.GetSingleton<GridConfigComponent>();
-            int3 baseSize = GetObjectSizeFromConfig(state.CurrentObjectId, state.Type);
-            int3 finalSize = (state.RotationIndex % 2 == 1) ? new int3(baseSize.z, baseSize.y, baseSize.x) : baseSize;
-
-            int airSpace = 4;
-            if (state.Type == PlacementType.Island)
+            if (!state.IsActive || !state.IsPositionValid)
             {
-                var islandCfg = ConfigManager.Instance.Tables.TbIsland.GetOrDefault(state.CurrentObjectId);
-                airSpace = islandCfg != null ? islandCfg.AirHeight : 4;
+                Debug.LogWarning("放置状态无效或位置非法，无法确认放置");
+                return;
             }
 
-            SendPlacementRequest(state.CurrentObjectId, state.Type, state.CurrentGridPos, finalSize, state.RotationIndex, airSpace);
+            int objectId = state.CurrentObjectId;
+            int3 gridPos = state.CurrentGridPos;
+            int rotation = state.RotationIndex;
+            PlacementType type = state.Type;
+            bool isSuccess = false;
 
-            EventManager.Instance.Publish(new ObjectBuiltEvent { Type = state.Type });
+            TileDTO serverTileData = null;
 
-            // [核心修改] 如果是桥梁，不退出建造模式，但触发异步刷新网格
-            if (state.Type == PlacementType.Bridge)
+            cfg.Island islandCfg = null;
+            int visualId = objectId;
+            if (type == PlacementType.Island)
             {
-                Debug.Log("[PlacementSystem] 桥梁已放置，保持建造模式并刷新网格");
-                RefreshBridgeVisualsAsync().Forget();
-                // 返回 false，告诉 UI 不要关闭
-                return false;
+                var result = GetIslandConfigWithFallback(objectId);
+                islandCfg = result.config;
+                visualId = result.visualId;
             }
 
-            // 其他类型（建筑、岛屿）：正常退出
-            state.IsActive = false;
-            CleanupPreview();
-            return true;
+            try
+            {
+                // [修改] 桥梁直接本地成功，不走网络请求
+                if (type == PlacementType.Bridge)
+                {
+                    isSuccess = true;
+                    Debug.Log($"[PlacementSystem] 桥梁建造：跳过服务器，直接本地执行。ID:{objectId}");
+                }
+                else if (type == PlacementType.Building)
+                {
+                    var dto = new BuildingCreateDTO
+                    {
+                        building_id = objectId,
+                        posX = gridPos.x,
+                        posY = gridPos.z,
+                        posZ = gridPos.y,
+                        rotate = rotation
+                    };
+                    var result = await NetworkManager.Instance.SendAsync<GamesDTO>("/building/create", dto);
+                    isSuccess = (result != null);
+                }
+                else if (type == PlacementType.Island)
+                {
+                    var dto = new TileCreateDTO
+                    {
+                        tile_type = objectId,
+                        posX = gridPos.x,
+                        posY = gridPos.z,
+                        posZ = gridPos.y
+                    };
+
+                    Debug.Log($"[PlacementSystem] 发送地块请求: ID={objectId} -> ServerPos=({dto.posX},{dto.posY},{dto.posZ})");
+
+                    var result = await NetworkManager.Instance.SendAsync<GamesDTO>("/tile/create", dto);
+
+                    if (result != null)
+                    {
+                        isSuccess = true;
+                        if (result.Tile != null && result.Tile.Count > 0)
+                        {
+                            serverTileData = result.Tile[0];
+                        }
+                    }
+                }
+            }
+            catch (System.Exception e)
+            {
+                Debug.LogError($"[PlacementSystem] 网络请求异常: {e.Message}");
+                return;
+            }
+
+            if (isSuccess)
+            {
+                var query = EntityManager.CreateEntityQuery(typeof(PlacementStateComponent));
+                if (!query.IsEmptyIgnoreFilter)
+                {
+                    var entity = query.GetSingletonEntity();
+                    var currentState = EntityManager.GetComponentData<PlacementStateComponent>(entity);
+                    var gridConfig = SystemAPI.GetSingleton<GridConfigComponent>();
+
+                    int3 baseSize;
+                    int airSpace = 4;
+
+                    if (type == PlacementType.Island)
+                    {
+                        baseSize = islandCfg != null ? new int3(islandCfg.Length, islandCfg.Height, islandCfg.Width) : new int3(1, 1, 1);
+                        airSpace = islandCfg != null ? islandCfg.AirHeight : 4;
+                    }
+                    else
+                    {
+                        baseSize = GetObjectSizeFromConfig(objectId, type);
+                    }
+
+                    int3 finalSize = (rotation % 2 == 1) ? new int3(baseSize.z, baseSize.y, baseSize.x) : baseSize;
+                    int spawnId = (type == PlacementType.Island) ? visualId : objectId;
+
+                    SendPlacementRequest(spawnId, type, gridPos, finalSize, rotation, airSpace, serverTileData);
+
+                    EventManager.Instance.Publish(new ObjectBuiltEvent { Type = type });
+
+                    if (type == PlacementType.Bridge)
+                    {
+                        RefreshBridgeVisualsAsync(gridPos).Forget();
+                        return;
+                    }
+
+                    currentState.IsActive = false;
+                    EntityManager.SetComponentData(entity, currentState);
+                    CleanupPreview();
+                }
+            }
         }
 
         public void CancelPlacement()
@@ -401,10 +518,11 @@ namespace GameFramework.ECS.Systems
             return false;
         }
 
-        private void SendPlacementRequest(int id, PlacementType type, int3 pos, int3 size, int rotation, int airSpace)
+        private void SendPlacementRequest(int id, PlacementType type, int3 pos, int3 size, int rotation, int airSpace, TileDTO tileData = null)
         {
             var requestEntity = EntityManager.CreateEntity();
             quaternion finalRotation = math.mul(quaternion.RotateY(math.radians(90 * rotation)), _defaultRotation);
+
             EntityManager.AddComponentData(requestEntity, new PlaceObjectRequest
             {
                 ObjectId = id,
@@ -415,13 +533,27 @@ namespace GameFramework.ECS.Systems
                 AirspaceHeight = airSpace,
                 RotationIndex = rotation
             });
+
+            if (tileData != null)
+            {
+                EntityManager.AddComponentData(requestEntity, new IslandStatusComponent
+                {
+                    State = tileData.state,
+                    StartTime = tileData.start_time / 1000,
+                    EndTime = tileData.end_time / 1000,
+                    CreateTime = tileData.create_time / 1000,
+                    ServerId = new FixedString64Bytes(tileData._id),
+                    IsRequestSent = false
+                });
+
+                Debug.Log($"[PlacementSystem] 已附加状态组件: ID={tileData._id}, State={tileData.state}, EndTime={tileData.end_time / 1000}");
+            }
         }
 
         private async UniTaskVoid CreatePreviewGameObject(int configId, PlacementType type)
         {
             _isResourceLoading = true;
             _lastLoadedObjectId = configId;
-
             string resourcePath = "";
 
             if (type == PlacementType.Building)
@@ -431,20 +563,13 @@ namespace GameFramework.ECS.Systems
             }
             else if (type == PlacementType.Island)
             {
-                var cfg = ConfigManager.Instance.Tables.TbIsland.GetOrDefault(configId);
-                if (cfg != null) resourcePath = cfg.ResourceName;
+                var result = GetIslandConfigWithFallback(configId);
+                if (result.config != null) resourcePath = result.config.ResourceName;
             }
             else if (type == PlacementType.Bridge)
             {
                 var cfg = ConfigManager.Instance.Tables.TbBridgeConfig.GetOrDefault(configId);
-                if (cfg != null)
-                {
-                    resourcePath = cfg.ResourceName;
-                }
-                else
-                {
-                    resourcePath = $"bridge_{configId}";
-                }
+                resourcePath = cfg != null ? cfg.ResourceName : $"bridge_{configId}";
             }
 
             if (!string.IsNullOrEmpty(resourcePath))
@@ -460,19 +585,23 @@ namespace GameFramework.ECS.Systems
                         _isFirstFrameAfterLoad = true;
                     }
                 }
-                catch (System.Exception e)
-                {
-                    Debug.LogError($"[PlacementSystem] 资源加载失败 Key: {resourcePath}. Error: {e.Message}");
-                }
+                catch { /*...*/ }
             }
             _isResourceLoading = false;
         }
 
-        private void UpdatePreviewTransform(int3 gridPos, int3 size, int rotIndex, float cellSize)
+        private void UpdatePreviewTransform(int3 gridPos, int3 size, int rotIndex, float cellSize, PlacementType type)
         {
             if (_previewObject == null) return;
             if (!_previewObject.activeSelf) _previewObject.SetActive(true);
+
             float3 worldPos = _gridSystem.CalculateObjectCenterWorldPosition(gridPos, size);
+
+            if (type == PlacementType.Island)
+            {
+                worldPos.y += 1f;
+            }
+
             _previewObject.transform.position = worldPos;
             _previewObject.transform.rotation = math.mul(quaternion.RotateY(math.radians(90 * rotIndex)), _defaultRotation);
         }
@@ -499,7 +628,8 @@ namespace GameFramework.ECS.Systems
                     return bCfg != null ? new int3(bCfg.Length, 1, bCfg.Width) : new int3(1, 1, 1);
 
                 case PlacementType.Island:
-                    var iCfg = ConfigManager.Instance.Tables.TbIsland.GetOrDefault(objectId);
+                    var result = GetIslandConfigWithFallback(objectId);
+                    var iCfg = result.config;
                     return iCfg != null ? new int3(iCfg.Length, iCfg.Height, iCfg.Width) : new int3(1, 1, 1);
             }
             return new int3(1, 1, 1);

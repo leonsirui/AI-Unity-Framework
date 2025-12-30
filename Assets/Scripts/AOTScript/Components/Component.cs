@@ -82,17 +82,38 @@ namespace GameFramework.ECS.Components
     {
         public int StructureType;
     }
+
+    /// <summary>
+    /// 岛屿状态机组件
+    /// 记录岛屿当前的生命周期状态及相关时间戳
+    /// </summary>
+    public struct IslandStatusComponent : IComponentData
+    {
+        public int State;          // 0:建造中, 1:正常, 3:销毁中...
+        public long StartTime;     // 开始时间 (秒)
+        public long EndTime;       // 结束时间 (秒)
+        public long CreateTime;    // 创建时间 (秒)
+
+        // [新增] 保存服务器端的唯一ID (_id)，用于后续发送请求
+        public FixedString64Bytes ServerId;
+
+        // [新增] 标记是否已经发送了完成请求，防止每帧重复发送
+        public bool IsRequestSent;
+    }
     #endregion
 
     public struct PlaceObjectRequest : IComponentData
     {
-        public int ObjectId;
-        public int3 Position;
+        public int ObjectId;       // 配置表 ID
         public PlacementType Type;
+        public int3 Position;
         public int3 Size;
         public quaternion Rotation;
         public int AirspaceHeight;
         public int RotationIndex;
+
+        // [新增] 服务器返回的唯一实例ID
+        public FixedString64Bytes ServerId;
     }
 
     public struct AssetReferenceComponent : IComponentData
