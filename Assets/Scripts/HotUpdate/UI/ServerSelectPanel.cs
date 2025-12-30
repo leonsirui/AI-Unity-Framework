@@ -1,92 +1,132 @@
 using UnityEngine;
+using UnityEngine.UI;
+using TMPro;
 using SuperScrollView;
 using System.Collections.Generic;
 using GameFramework.Managers;
 using GameFramework.UI;
+using Cysharp.Threading.Tasks;
 
 namespace HotUpdate.UI
 {
     public class ServerSelectPanel : UIPanel
     {
-        [Header("SuperScrollView")]
+        [Header("--- Main Controls ---")]
+        [UIBind] public Button m_btn_StartGameButton;
+        [UIBind] public Button m_btn_SelectServerButton;
+        [UIBind] public TextMeshProUGUI m_txt_ServerName;
+        [UIBind] public GameObject m_obj_SelectServerPanel;
         [UIBind] public LoopGridView m_obj_Root;
+        [UIBind] public Button m_btn_CloseButton;
 
-        // [修改] 使用 ServerDTO 类型
         private List<ServerDTO> _serverList = null;
+        private ServerDTO _currentSelectedServer = null;
 
-        private void Start()
+        protected override void OnInit()
         {
+            base.OnInit();
+            m_btn_StartGameButton.onClick.RemoveAllListeners();
+            m_btn_StartGameButton.onClick.AddListener(OnStartGameClick);
+
+            m_btn_SelectServerButton.onClick.AddListener(() => m_obj_SelectServerPanel.SetActive(true));
+            m_btn_CloseButton.onClick.AddListener(() => m_obj_SelectServerPanel.SetActive(false));
+
+            m_obj_SelectServerPanel.SetActive(false);
+            if (m_txt_ServerName != null) m_txt_ServerName.text = "请选择服务器";
+        }
+
+        protected override void OnShow()
+        {
+            base.OnShow();
+            // 如果已经有缓存列表，直接刷新
             RefreshServerList();
+        }
+
+        private void OnEnable()
+        {
+            if (NetworkManager.Instance != null)
+            {
+                // 1. 监听登录成功 -> 刷新列表
+                NetworkManager.Instance.OnLoginSuccess += OnLoginSuccess;
+                // 2. 监听游戏数据 -> 进入游戏
+                NetworkManager.Instance.OnGameDataReceived += OnJoinGameSuccess;
+            }
+        }
+
+        private void OnDisable()
+        {
+            if (NetworkManager.Instance != null)
+            {
+                NetworkManager.Instance.OnLoginSuccess -= OnLoginSuccess;
+                NetworkManager.Instance.OnGameDataReceived -= OnJoinGameSuccess;
+            }
+        }
+
+        // 处理登录成功：只负责刷新列表
+        private async void OnLoginSuccess()
+        {
+            await UniTask.SwitchToMainThread();
+            Debug.Log("[ServerSelectPanel] 登录成功，更新服务器列表 UI");
+            RefreshServerList();
+            SelectDefaultServer();
+        }
+
+        // 处理进入游戏成功：关闭面板，逻辑转交 GameWorldLoader
+        private void OnJoinGameSuccess(GamesDTO data)
+        {
+            Debug.Log("[ServerSelectPanel] 加入游戏成功，关闭选服界面");
+            Hide();
+        }
+
+        // 点击开始游戏：调用专用的 SendGameRequest
+        private void OnStartGameClick()
+        {
+            if (_currentSelectedServer == null) return;
+
+            Debug.Log($"[ServerSelectPanel] 点击开始，请求进入服务器: ID {_currentSelectedServer.server_id}");
+
+            var joinReq = new JoinGameDTO { server_id = _currentSelectedServer.server_id };
+
+            // 使用通用的 SendGameRequest
+            NetworkManager.Instance.SendGameRequest("/player/joinGame", joinReq);
         }
 
         public void RefreshServerList()
         {
-            if (NetworkManager.Instance != null)
-            {
-                _serverList = NetworkManager.Instance.CachedServerList;
-            }
+            if (NetworkManager.Instance == null) return;
+            _serverList = NetworkManager.Instance.CachedServerList;
 
-            if (_serverList == null) _serverList = new List<ServerDTO>();
-
-            // 重置列表
-            if (m_obj_Root.ItemTotalCount == 0)
+            if (_serverList != null && _serverList.Count > 0 && m_obj_Root != null)
             {
-                m_obj_Root.InitGridView(_serverList.Count, OnGetItemByRowColumn);
-            }
-            else
-            {
-                m_obj_Root.SetListItemCount(_serverList.Count);
-                m_obj_Root.RefreshAllShownItem();
+                if (m_obj_Root.ItemTotalCount == 0) m_obj_Root.InitGridView(_serverList.Count, OnGetItemByRowColumn);
+                else { m_obj_Root.SetListItemCount(_serverList.Count); m_obj_Root.RefreshAllShownItem(); }
             }
         }
 
-        LoopGridViewItem OnGetItemByRowColumn(LoopGridView gridView, int itemIndex, int row, int column)
+        // ... (省略 SelectDefaultServer 和 OnGetItemByRowColumn 的实现，保持原样即可) ...
+        private void SelectDefaultServer()
         {
-            if (itemIndex < 0 || itemIndex >= _serverList.Count)
-            {
-                return null;
-            }
+            if (_serverList != null && _serverList.Count > 0) UpdateUI(_serverList[0]);
+        }
 
-            // [修改] 获取数据
-            ServerDTO itemData = _serverList[itemIndex];
+        private void UpdateUI(ServerDTO server)
+        {
+            _currentSelectedServer = server;
+            if (m_txt_ServerName) m_txt_ServerName.text = server.name;
+        }
 
-            // 注意：Inspector 面板上的 ItemName 必须是 "ServerItemPrefab"
+        private LoopGridViewItem OnGetItemByRowColumn(LoopGridView gridView, int itemIndex, int row, int column)
+        {
+            if (itemIndex < 0 || itemIndex >= _serverList.Count) return null;
             LoopGridViewItem item = gridView.NewListViewItem("ServerItem");
-
-            if (item == null)
-            {
-                return null;
-            }
-
             ServerItem itemScript = item.GetComponent<ServerItem>();
+            if (itemScript == null) itemScript = item.gameObject.AddComponent<ServerItem>();
 
-            if (itemScript == null)
-            {
-                itemScript = item.gameObject.AddComponent<ServerItem>();
-            }
-
-            itemScript.Init(itemData, OnServerSelected);
-
+            itemScript.Init(_serverList[itemIndex], (s) => {
+                UpdateUI(s);
+                m_obj_SelectServerPanel.SetActive(false);
+            });
             return item;
-        }
-
-        // [修改] 参数类型改为 ServerDTO
-        private void OnServerSelected(ServerDTO node)
-        {
-            Debug.Log($"[ServerSelectPanel] 玩家选择了服务器: [{node.server_id}] {node.name}，发起请求...");
-
-            // 1. 关闭面板
-            Hide();
-
-            // 2. 发送加入游戏请求
-            if (NetworkManager.Instance != null)
-            {
-                NetworkManager.Instance.SendJoinGameRequest(node.server_id);
-            }
-            else
-            {
-                Debug.LogError("NetworkManager 实例为空！");
-            }
         }
     }
 }

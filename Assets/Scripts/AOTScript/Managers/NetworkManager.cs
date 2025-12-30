@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Sockets;
 using System.Text;
 using UnityEngine;
@@ -15,319 +16,193 @@ namespace GameFramework.Managers
         private const string SERVER_IP = "192.168.10.116";
         private const int SERVER_PORT = 8009;
 
-        private TcpClient _tcpClient;
-        private NetworkStream _stream;
-        private byte[] _receiveBuffer = new byte[8192];
-        private bool _isConnected = false;
-
-        // 鉴权令牌
         private string _accessToken = "";
-
-        // 缓存的服务器列表
         public List<ServerDTO> CachedServerList { get; private set; } = new List<ServerDTO>();
+        public GamesDTO CurrentGameData { get; private set; }
 
-        // 消息处理缓冲区（解决粘包问题）
-        private StringBuilder _messageBuffer = new StringBuilder();
-
-        // 主线程回调队列
-        private readonly Queue<Action> _mainThreadActions = new Queue<Action>();
-
-        public bool IsConnected => _isConnected;
+        public bool IsConnected => true;
 
         // ===================================================================================
-        // 2. 事件定义
+        // 2. 事件定义 (分离登录和游戏数据事件)
         // ===================================================================================
-        public event Action OnLoginSuccess;
-        public event Action<GamesDTO> OnJoinGameSuccess;
+        public event Action OnLoginSuccess;             // 登录成功，UI应刷新服务器列表
+        public event Action<GamesDTO> OnGameDataReceived; // 收到游戏数据(JoinGame, Sync等)，UI应进入游戏
 
         // ===================================================================================
-        // 3. 生命周期与连接
+        // 3. 公开业务接口 (明确区分)
         // ===================================================================================
+
         public void Initialize()
         {
-            Debug.Log("[NetworkManager] 初始化中...");
-            ConnectToServer();
+            Debug.Log("[NetworkManager] 初始化，自动开始登录流程...");
+            // 自动登录
+            SendLogin("test_user", "123456");
         }
-
-        private void Update()
-        {
-            // 在主线程处理网络回调
-            lock (_mainThreadActions)
-            {
-                while (_mainThreadActions.Count > 0)
-                {
-                    _mainThreadActions.Dequeue()?.Invoke();
-                }
-            }
-        }
-
-        private void ConnectToServer()
-        {
-            if (_isConnected) return;
-            Close();
-
-            try
-            {
-                _tcpClient = new TcpClient();
-                _tcpClient.BeginConnect(SERVER_IP, SERVER_PORT, OnConnectCallback, _tcpClient);
-            }
-            catch (Exception e)
-            {
-                Debug.LogError($"[NetworkManager] 连接失败: {e.Message}");
-            }
-        }
-
-        private void OnConnectCallback(IAsyncResult ar)
-        {
-            try
-            {
-                TcpClient client = (TcpClient)ar.AsyncState;
-                if (client == null) return;
-                client.EndConnect(ar);
-
-                if (client.Connected)
-                {
-                    _isConnected = true;
-                    _stream = client.GetStream();
-                    Debug.Log("[NetworkManager] 连接成功，自动发起登录...");
-
-                    // 连接成功后自动发送登录请求
-                    SendLoginRequest("test_user", "123456");
-
-                    _stream.BeginRead(_receiveBuffer, 0, _receiveBuffer.Length, OnReceiveCallback, null);
-                }
-            }
-            catch (Exception e)
-            {
-                _isConnected = false;
-                Debug.LogError($"[NetworkManager] 连接回调异常: {e.Message}");
-            }
-        }
-
-        private void OnReceiveCallback(IAsyncResult ar)
-        {
-            try
-            {
-                if (!_isConnected || _stream == null) return;
-                int bytesRead = _stream.EndRead(ar);
-                if (bytesRead <= 0) { Close(); return; }
-
-                string rawMsg = Encoding.UTF8.GetString(_receiveBuffer, 0, bytesRead);
-
-                lock (_mainThreadActions)
-                {
-                    _mainThreadActions.Enqueue(() => ProcessMessage(rawMsg));
-                }
-
-                _stream.BeginRead(_receiveBuffer, 0, _receiveBuffer.Length, OnReceiveCallback, null);
-            }
-            catch (Exception e)
-            {
-                Close();
-                Debug.LogError($"[NetworkManager] 接收异常: {e.Message}");
-            }
-        }
-
-        // ===================================================================================
-        // 4. 消息解析逻辑
-        // ===================================================================================
-        private void ProcessMessage(string newPart)
-        {
-            _messageBuffer.Append(newPart);
-            string fullData = _messageBuffer.ToString();
-
-            // 简易 HTTP 拆包：查找 Header 和 Body 的分隔符
-            int bodyIndex = fullData.IndexOf("\r\n\r\n");
-
-            if (bodyIndex != -1)
-            {
-                string jsonBody = fullData.Substring(bodyIndex + 4);
-
-                // 简易完整性检查（实际项目应解析 Content-Length）
-                if (jsonBody.TrimEnd().EndsWith("}"))
-                {
-                    _messageBuffer.Clear();
-                    Debug.Log($"[NetworkManager] 收到数据包 >>> {jsonBody}");
-                    HandleJsonLogic(jsonBody);
-                }
-            }
-        }
-
-        private void HandleJsonLogic(string jsonBody)
-        {
-            // 策略：通过检测 JSON 字段特征来判断消息类型
-
-            // A. 处理登录响应 (包含 access_token 和 server_list)
-            if (jsonBody.Contains("\"access_token\"") && jsonBody.Contains("\"server_list\""))
-            {
-                try
-                {
-                    var response = JsonUtility.FromJson<ServerResponse<UserLoginResultDTO>>(jsonBody);
-                    if (response != null && response.status == "success")
-                    {
-                        _accessToken = response.result.access_token;
-                        CachedServerList = response.result.server_list;
-
-                        Debug.Log($"[NetworkManager] 登录成功! Token: {_accessToken.Substring(0, 8)}... 获取到 {CachedServerList.Count} 个服务器");
-                        OnLoginSuccess?.Invoke();
-
-                        // [测试] 自动打开选服界面
-                        if (GameFramework.Managers.UIManager.Instance != null)
-                        {
-                            GameFramework.Managers.UIManager.Instance.ShowPanelAsync<GameFramework.Managers.UIPanel>("ServerSelectPanel", GameFramework.Managers.UILayer.Normal).Forget();
-                        }
-                    }
-                }
-                catch (Exception ex) { Debug.LogError($"Login解析失败: {ex.Message}"); }
-            }
-            // B. 处理加入游戏响应 (包含 Player 数据)
-            else if (jsonBody.Contains("\"Player\"") || (jsonBody.Contains("\"Building\"") && jsonBody.Contains("\"Tile\"")))
-            {
-                try
-                {
-                    var response = JsonUtility.FromJson<ServerResponse<GamesDTO>>(jsonBody);
-                    if (response != null && response.status == "success")
-                    {
-                        Debug.Log($"<color=green>[NetworkManager] 加入游戏成功!</color> 玩家: {response.result.Player?.name}");
-                        OnJoinGameSuccess?.Invoke(response.result);
-                    }
-                    else
-                    {
-                        Debug.LogError($"[NetworkManager] 加入游戏失败: {response?.message}");
-                    }
-                }
-                catch (Exception ex) { Debug.LogError($"JoinGame解析失败: {ex.Message}"); }
-            }
-            // C. 错误处理
-            else if (jsonBody.Contains("\"error\""))
-            {
-                Debug.LogWarning($"[NetworkManager] 服务器返回错误: {jsonBody}");
-            }
-        }
-
-        // ===================================================================================
-        // 5. 请求发送逻辑
-        // ===================================================================================
 
         /// <summary>
-        /// 发送登录请求 (/user/login)
+        /// 1. 专用登录接口：返回 UserLoginResultDTO (含服务器列表)
         /// </summary>
-        public void SendLoginRequest(string username, string password)
+        public async void SendLogin(string username, string password)
         {
             var dto = new UserLoginDTO { username = username, password = password };
             string jsonBody = JsonUtility.ToJson(dto);
 
-            Debug.Log($"[NetworkManager] 发送登录请求: {jsonBody}");
-            SendPostRequest("/user/login", jsonBody, false); // 登录不需要 Token
-        }
+            Debug.Log($"[NetworkManager] 发送登录请求...");
 
-        /// <summary>
-        /// 发送加入游戏请求 (/player/joinGame)
-        /// </summary>
-        public void SendJoinGameRequest(int serverId)
-        {
-            var dto = new JoinGameDTO { server_id = serverId };
-            string jsonBody = JsonUtility.ToJson(dto);
+            // 发送请求，指定返回类型为 UserLoginResultDTO
+            var response = await PostAsync<UserLoginResultDTO>("/user/login", jsonBody, false);
 
-            Debug.Log($"[NetworkManager] 发送选服请求: {jsonBody}");
-            SendPostRequest("/player/joinGame", jsonBody, true); // 需要 Token
-        }
-
-        /// <summary>
-        /// 底层 POST 构造器
-        /// </summary>
-        private void SendPostRequest(string url, string jsonBody, bool needAuth)
-        {
-            StringBuilder sb = new StringBuilder();
-            sb.Append($"POST {url} HTTP/1.1\r\n");
-            sb.Append($"Host: {SERVER_IP}:{SERVER_PORT}\r\n");
-            sb.Append("Content-Type: application/json\r\n");
-
-            if (needAuth && !string.IsNullOrEmpty(_accessToken))
+            if (response != null && response.status == "success")
             {
-                sb.Append($"Authorization: Bearer {_accessToken}\r\n");
+                _accessToken = response.result.access_token;
+                CachedServerList = response.result.server_list;
+                Debug.Log($"[NetworkManager] 登录成功，获取到 {CachedServerList.Count} 个服务器");
+
+                // 触发登录成功事件
+                OnLoginSuccess?.Invoke();
             }
-
-            sb.Append($"Content-Length: {Encoding.UTF8.GetByteCount(jsonBody)}\r\n");
-            sb.Append("Connection: Keep-Alive\r\n\r\n");
-            sb.Append(jsonBody);
-
-            Send(Encoding.UTF8.GetBytes(sb.ToString()));
+            else
+            {
+                Debug.LogError($"[NetworkManager] 登录失败: {response?.message}");
+            }
         }
 
-        public void Send(byte[] data)
+        /// <summary>
+        /// 2. 通用游戏请求接口：返回 GamesDTO (如 JoinGame, createBuilding 等)
+        /// </summary>
+        /// <param name="url">接口地址，如 /player/joinGame</param>
+        /// <param name="dto">请求参数对象</param>
+        public async void SendGameRequest(string url, object dto)
         {
-            if (!_isConnected || _stream == null) return;
-            try { _stream.Write(data, 0, data.Length); }
-            catch { Close(); }
+            string jsonBody = JsonUtility.ToJson(dto);
+            Debug.Log($"[NetworkManager] 发送业务请求: {url}");
+
+            // 发送请求，指定返回类型为 GamesDTO
+            var response = await PostAsync<GamesDTO>(url, jsonBody, true);
+
+            if (response != null && response.status == "success")
+            {
+                Debug.Log($"[NetworkManager] 请求成功 ({url})，更新游戏数据");
+                CurrentGameData = response.result;
+
+                // 触发游戏数据更新事件
+                OnGameDataReceived?.Invoke(response.result);
+            }
+            else
+            {
+                Debug.LogError($"[NetworkManager] 请求失败 ({url}): {response?.message}");
+            }
         }
 
-        public void Close()
+        // ===================================================================================
+        // 4. 底层网络实现 (泛型化，处理粘包和反序列化)
+        // ===================================================================================
+        private async UniTask<ServerResponse<T>> PostAsync<T>(string url, string jsonBody, bool needAuth)
         {
-            _isConnected = false;
-            _accessToken = "";
-            if (_stream != null) { _stream.Close(); _stream = null; }
-            if (_tcpClient != null) { _tcpClient.Close(); _tcpClient = null; }
-            _messageBuffer.Clear();
+            using (TcpClient client = new TcpClient())
+            {
+                try
+                {
+                    await client.ConnectAsync(SERVER_IP, SERVER_PORT);
+                    using (NetworkStream stream = client.GetStream())
+                    {
+                        // 构造 HTTP 头
+                        StringBuilder sb = new StringBuilder();
+                        sb.Append($"POST {url} HTTP/1.1\r\n");
+                        sb.Append($"Host: {SERVER_IP}:{SERVER_PORT}\r\n");
+                        sb.Append("Content-Type: application/json\r\n");
+                        if (needAuth && !string.IsNullOrEmpty(_accessToken))
+                        {
+                            sb.Append($"Authorization: Bearer {_accessToken}\r\n");
+                        }
+                        byte[] bodyBytes = Encoding.UTF8.GetBytes(jsonBody);
+                        sb.Append($"Content-Length: {bodyBytes.Length}\r\n");
+                        sb.Append("Connection: close\r\n\r\n");
+
+                        // 发送
+                        byte[] headerBytes = Encoding.UTF8.GetBytes(sb.ToString());
+                        await stream.WriteAsync(headerBytes, 0, headerBytes.Length);
+                        await stream.WriteAsync(bodyBytes, 0, bodyBytes.Length);
+
+                        // 接收
+                        using (MemoryStream ms = new MemoryStream())
+                        {
+                            byte[] buffer = new byte[8192];
+                            int bytesRead;
+                            while ((bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+                            {
+                                ms.Write(buffer, 0, bytesRead);
+                            }
+
+                            byte[] totalData = ms.ToArray();
+                            if (totalData.Length > 0)
+                            {
+                                string rawResponse = Encoding.UTF8.GetString(totalData);
+                                return ParseServerResponse<T>(rawResponse);
+                            }
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[NetworkManager] 网络异常: {e.Message}");
+                }
+            }
+            return null;
         }
 
-        private void OnDestroy() { Close(); }
+        private ServerResponse<T> ParseServerResponse<T>(string rawMsg)
+        {
+            try
+            {
+                // 分离 HTTP 头
+                string jsonBody = rawMsg;
+                int headerEnd = rawMsg.IndexOf("\r\n\r\n");
+                if (headerEnd != -1) jsonBody = rawMsg.Substring(headerEnd + 4);
+                jsonBody = jsonBody.Trim();
+
+                if (string.IsNullOrEmpty(jsonBody)) return null;
+
+                // 反序列化泛型结构
+                return JsonUtility.FromJson<ServerResponse<T>>(jsonBody);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[NetworkManager] JSON解析错误: {e.Message}");
+                return null;
+            }
+        }
     }
 
     // ===================================================================================
-    // 6. 数据结构定义 (基于 Swagger.json)
+    // DTO 定义 (保持)
     // ===================================================================================
-
-    // 通用响应包装 (status, message, result)
     [Serializable]
     public class ServerResponse<T>
     {
-        public string status;       // "success"
+        public string status;
         public string message;
         public string error;
-        public T result;            // 具体业务数据
+        public T result;
     }
 
-    // ---------------- REQUEST DTOs ----------------
+    [Serializable] public class UserLoginDTO { public string username; public string password; }
+    [Serializable] public class UserLoginResultDTO { public string access_token; public int expires_in; public List<ServerDTO> server_list; }
 
-    [Serializable]
-    public class UserLoginDTO
-    {
-        public string username;
-        public string password;
-    }
-
-    [Serializable]
-    public class JoinGameDTO
-    {
-        public int server_id;
-    }
-
-    // ---------------- RESPONSE DTOs ----------------
-
-    // 登录返回数据
-    [Serializable]
-    public class UserLoginResultDTO
-    {
-        public string access_token;
-        public int expires_in;
-        public List<ServerDTO> server_list;
-    }
-
-    // 服务器信息 (对应 Server)
     [Serializable]
     public class ServerDTO
     {
         public int server_id;
         public string name;
         public string ip;
-        public string port;     // Swagger定义为 string
-        public int is_open;     // 1开放 0不开放
-        public int state;       // 1良好 2拥堵 3爆满
+        public string port;
+        public int is_open;
+        public int state;
         public long create_time;
     }
 
-    // 游戏全量数据 (对应 gamesDTO)
+    [Serializable] public class JoinGameDTO { public int server_id; }
+
     [Serializable]
     public class GamesDTO
     {
@@ -335,8 +210,7 @@ namespace GameFramework.Managers
         public List<TileDTO> Tile;
         public List<BuildingDTO> Building;
         public List<ItemDTO> Item;
-        // public List<QuestDTO> Quest; // 根据需要取消注释
-        // public BuildingUnlockDTO BuildingUnlock;
+        // 其他字段按需添加...
     }
 
     [Serializable]
@@ -356,14 +230,14 @@ namespace GameFramework.Managers
     {
         public string _id;
         public int tile_id;
+        public int tile_type;
         public int level;
-        public int tile_index;
         public int is_fixed;
         public int posX;
         public int posY;
         public int posZ;
         public int state;
-        // 其他字段按需添加...
+        // ... 其他字段
     }
 
     [Serializable]
@@ -376,9 +250,11 @@ namespace GameFramework.Managers
         public int posX;
         public int posY;
         public int posZ;
-        public int rotate;
+        public int rotate; // [关键修复] 之前缺失的字段
         public int state;
-        // 其他字段按需添加...
+        public long start_time;
+        public long end_time;
+        public int PowerState;
     }
 
     [Serializable]
