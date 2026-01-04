@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using GameFramework.Managers;
 using GameFramework.UI;
 using Cysharp.Threading.Tasks;
+using GameFramework.Events;
 
 namespace HotUpdate.UI
 {
@@ -20,7 +21,6 @@ namespace HotUpdate.UI
         [UIBind] public Button m_btn_CloseButton;
 
         private List<ServerDTO> _serverList = null;
-        private ServerDTO _currentSelectedServer = null;
 
         protected override void OnInit()
         {
@@ -32,58 +32,80 @@ namespace HotUpdate.UI
             m_btn_CloseButton.onClick.AddListener(() => m_obj_SelectServerPanel.SetActive(false));
 
             m_obj_SelectServerPanel.SetActive(false);
-            if (m_txt_ServerName != null) m_txt_ServerName.text = "请选择服务器";
+            m_txt_ServerName.text = "正在获取服务器...";
         }
 
         protected override void OnShow()
         {
             base.OnShow();
-            // 如果已经有缓存列表，直接刷新
+
+            // 1. 主动拉取：获取列表
             RefreshServerList();
+
+            // 2. 主动拉取：获取当前已选中的服务器（如果有）
+            // 因为 NetworkManager 可能在登录成功时就已经选好了默认服
+            if (NetworkManager.Instance != null && NetworkManager.Instance.CurrentSelectedServer != null)
+            {
+                UpdateUI(NetworkManager.Instance.CurrentSelectedServer);
+            }
+            else
+            {
+                m_txt_ServerName.text = "请选择服务器";
+            }
         }
 
         private void OnEnable()
         {
             if (NetworkManager.Instance != null)
             {
-                NetworkManager.Instance.OnLoginSuccess += OnLoginSuccess;
-                NetworkManager.Instance.OnGameDataReceived += OnJoinGameSuccess;
+                EventManager.Instance.Subscribe<LoginSuccessEvent>(OnLoginSuccess);
+                EventManager.Instance.Subscribe<GameDataReceivedEvent>(OnJoinGameSuccess);
+                EventManager.Instance.Subscribe<ServerSelectedEvent>(OnServerSelected);
             }
         }
 
         private void OnDisable()
         {
-            if (NetworkManager.Instance != null)
+            if (EventManager.Instance != null)
             {
-                NetworkManager.Instance.OnLoginSuccess -= OnLoginSuccess;
-                NetworkManager.Instance.OnGameDataReceived -= OnJoinGameSuccess;
+                EventManager.Instance.Unsubscribe<LoginSuccessEvent>(OnLoginSuccess);
+                EventManager.Instance.Unsubscribe<GameDataReceivedEvent>(OnJoinGameSuccess);
+                EventManager.Instance.Unsubscribe<ServerSelectedEvent>(OnServerSelected);
             }
         }
 
-        private async void OnLoginSuccess()
+        // --- 事件回调 ---
+
+        private async void OnLoginSuccess(LoginSuccessEvent evt)
         {
             await UniTask.SwitchToMainThread();
-            Debug.Log("[ServerSelectPanel] 登录成功，更新服务器列表 UI");
+            // 登录成功只意味着列表数据准备好了，UI 刷新列表即可
             RefreshServerList();
-            SelectDefaultServer();
+
+            // 注意：不再需要在这里 SelectDefaultServer，
+            // 因为 NetworkManager 会在登录成功的同时设置好 DefaultServer 并触发 ServerSelectedEvent。
+            // 如果 NetworkManager 先触发事件，UI 打开时 OnShow 会通过主动拉取(Step 2)同步状态。
+            // 如果 UI 是开着的，OnServerSelected 会负责更新。
         }
 
-        private void OnJoinGameSuccess(GamesDTO data)
+        private void OnJoinGameSuccess(GameDataReceivedEvent evt)
         {
-            Debug.Log("[ServerSelectPanel] 加入游戏成功，关闭选服界面");
             Hide();
         }
 
-        private void OnStartGameClick()
+        private void OnServerSelected(ServerSelectedEvent evt)
         {
-            if (_currentSelectedServer == null) return;
+            // 被动响应：Manager 通知我们服务器变了
+            UpdateUI(evt.ServerInfo);
+        }
 
-            Debug.Log($"[ServerSelectPanel] 点击开始，请求进入服务器: ID {_currentSelectedServer.server_id}");
+        // --- 核心逻辑 ---
 
-            // 发送 JoinGame 请求
-            // 此时 NetworkManager 内部已经通过 SwitchServer 切换到了目标 IP
-            var joinReq = new JoinGameDTO { server_id = _currentSelectedServer.server_id };
-            NetworkManager.Instance.SendGameRequest("/player/joinGame", joinReq);
+        private void UpdateUI(ServerDTO server)
+        {
+            if (server == null) return;
+            if (m_txt_ServerName) m_txt_ServerName.text = server.name;
+            if (m_obj_SelectServerPanel) m_obj_SelectServerPanel.SetActive(false);
         }
 
         public void RefreshServerList()
@@ -98,23 +120,9 @@ namespace HotUpdate.UI
             }
         }
 
-        private void SelectDefaultServer()
+        private void OnStartGameClick()
         {
-            if (_serverList != null && _serverList.Count > 0) UpdateUI(_serverList[0]);
-        }
-
-        private void UpdateUI(ServerDTO server)
-        {
-            _currentSelectedServer = server;
-            if (m_txt_ServerName) m_txt_ServerName.text = server.name;
-
-            // =========================================================
-            // [关键修改] 选中服务器时，通知 NetworkManager 切换底层 IP/端口
-            // =========================================================
-            if (NetworkManager.Instance != null)
-            {
-                NetworkManager.Instance.SwitchServer(server);
-            }
+            NetworkManager.Instance.JoinGame();
         }
 
         private LoopGridViewItem OnGetItemByRowColumn(LoopGridView gridView, int itemIndex, int row, int column)
@@ -124,9 +132,9 @@ namespace HotUpdate.UI
             ServerItem itemScript = item.GetComponent<ServerItem>();
             if (itemScript == null) itemScript = item.gameObject.AddComponent<ServerItem>();
 
-            itemScript.Init(_serverList[itemIndex], (s) => {
-                UpdateUI(s);
-                m_obj_SelectServerPanel.SetActive(false);
+            // 点击列表项 -> 此时 UI 没有任何业务逻辑，只负责转发指令给 Manager
+            itemScript.Init(_serverList[itemIndex], (server) => {
+                NetworkManager.Instance.SwitchServer(server);
             });
             return item;
         }

@@ -1,25 +1,18 @@
 ﻿using GameFramework.Core;
 using System.Collections.Generic;
 using UnityEngine;
-using cfg; // 引用配置命名空间
+using cfg;
 using GameFramework;
 using System;
+using GameFramework.Managers; // [新增] 必须引用此命名空间以使用 ItemDTO
 
 namespace Game.HotUpdate
 {
-    // [新增] 对应服务器返回的 Item 数据结构
-    [Serializable]
-    public class ServerItemData
-    {
-        public string _id;
-        public int item_id;
-        public long count;
-        public int used;
-    }
-
     public class GlobalInventoryManager : Singleton<GlobalInventoryManager>
     {
         private readonly Dictionary<int, long> _inventory = new Dictionary<int, long>();
+
+        // 参数: itemId, delta(变化量), total(当前总量)
         public event Action<int, long, long> OnItemChanged;
 
         protected override void Awake()
@@ -27,64 +20,34 @@ namespace Game.HotUpdate
             base.Awake();
         }
 
-        // [新增] 专门用于处理服务器返回的物品列表
-        public void LoadInventoryFromServer(List<ServerItemData> serverItems)
-        {
-            _inventory.Clear();
-
-            if (serverItems != null && serverItems.Count > 0)
-            {
-                foreach (var sItem in serverItems)
-                {
-                    if (sItem != null)
-                    {
-                        // 信任服务器数据，直接覆盖
-                        if (_inventory.ContainsKey(sItem.item_id))
-                        {
-                            _inventory[sItem.item_id] = sItem.count;
-                        }
-                        else
-                        {
-                            _inventory.Add(sItem.item_id, sItem.count);
-                        }
-                    }
-                }
-                Debug.Log($"[GlobalInventoryManager] ✅ 已同步服务器物品数据，共 {_inventory.Count} 种。");
-            }
-            else
-            {
-                Debug.Log("[GlobalInventoryManager] 服务器返回的物品列表为空。");
-            }
-        }
-
-        /// <summary>
-        /// 本地/单机模式初始化逻辑
-        /// </summary>
         public void LoadInventory(Dictionary<int, long> savedData)
         {
             _inventory.Clear();
 
-            // 1. 优先加载本地存档
+            // 1. 优先加载存档
             if (savedData != null && savedData.Count > 0)
             {
                 foreach (var kvp in savedData)
                 {
                     _inventory[kvp.Key] = kvp.Value;
                 }
-                Debug.Log("[GlobalInventoryManager] 已加载本地存档数据");
+                Debug.Log("[GlobalInventoryManager] 已加载存档数据");
             }
-            // 2. 没有存档时，读取【GameConfig.InitialResources】进行初始化
+            // 2. 没有存档时，读取配置表
             else
             {
                 Debug.Log("[GlobalInventoryManager] 未发现存档，读取配置表初始化资源...");
 
                 var tables = ConfigManager.Instance.Tables;
-                if (tables != null && tables.TbGameConfig.DataList.Count > 0)
+                // [修改前] if (tables != null && tables.TbGameConfig.DataList.Count > 0)
+                // [修改后] 直接判断表是否存在
+                if (tables != null && tables.TbGameConfig != null)
                 {
-                    // 获取 DataList 的第一个元素
-                    var gameCfg = tables.TbGameConfig.DataList[0];
+                    // [修改前] var gameCfg = tables.TbGameConfig.DataList[0];
+                    // [修改后] 单例模式下，TbGameConfig 本身就是数据入口（或者代理了数据）
+                    var gameCfg = tables.TbGameConfig;
 
-                    if (gameCfg != null && gameCfg.InitialResources != null)
+                    if (gameCfg.InitialResources != null)
                     {
                         foreach (var resInfo in gameCfg.InitialResources)
                         {
@@ -104,6 +67,42 @@ namespace Game.HotUpdate
             }
         }
 
+        // ========================================================================
+        // [新增] 修复 CS1061 错误：处理服务器同步下来的道具列表
+        // ========================================================================
+        public void UpdateItems(List<ItemDTO> items)
+        {
+            if (items == null) return;
+
+            foreach (var item in items)
+            {
+                // ItemDTO 中的 count 通常是当前拥有的绝对数量
+                UpdateSingleItemFromNetwork(item.item_id, item.count);
+            }
+
+            Debug.Log($"[GlobalInventoryManager] 已同步更新 {items.Count} 个物品数据");
+        }
+
+        /// <summary>
+        /// 内部辅助：根据最新总量更新本地缓存，并计算差值触发事件
+        /// </summary>
+        private void UpdateSingleItemFromNetwork(int itemId, long serverCount)
+        {
+            long localCount = GetItemCount(itemId);
+
+            // 如果数量有变化，才执行更新和回调
+            if (localCount != serverCount)
+            {
+                _inventory[itemId] = serverCount;
+
+                long delta = serverCount - localCount;
+                OnItemChanged?.Invoke(itemId, delta, serverCount);
+
+                // Debug.Log($"[Inventory Sync] ID:{itemId} 变化:{delta} 当前:{serverCount}");
+            }
+        }
+        // ========================================================================
+
         public Item GetConfig(int itemId)
         {
             if (ConfigManager.Instance == null || ConfigManager.Instance.Tables == null) return null;
@@ -117,13 +116,7 @@ namespace Game.HotUpdate
         public void AddItem(int itemId, long amount)
         {
             if (amount <= 0) return;
-
-            // 校验物品ID是否有效
-            if (GetConfig(itemId) == null)
-            {
-                Debug.LogError($"[GlobalInventoryManager] 无法添加物品，ID {itemId} 在道具表中不存在！");
-                return;
-            }
+            if (GetConfig(itemId) == null) return;
 
             if (!_inventory.ContainsKey(itemId)) _inventory[itemId] = 0;
             _inventory[itemId] += amount;

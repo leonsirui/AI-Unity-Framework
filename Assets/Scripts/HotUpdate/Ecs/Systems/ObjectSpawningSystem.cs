@@ -186,7 +186,7 @@ namespace GameFramework.ECS.Systems
                     switch (bType)
                     {
                         case 1: // Core
-                            if (subtype == 1)
+                            if (subtype == 2)
                             {
                                 var cfgVisitor = new float2(5, 2.0f);
                                 EntityManager.AddComponentData(spawned, new VisitorCenterComponent

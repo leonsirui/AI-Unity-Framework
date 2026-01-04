@@ -1,7 +1,7 @@
 using Cysharp.Threading.Tasks;
 using GameFramework.Core;
 using GameFramework.ECS.Components;
-using GameFramework.Managers;
+using GameFramework.Managers; // 确保引用了包含 RequestData 的命名空间
 using Unity.Collections;
 using Unity.Entities;
 using Unity.Mathematics;
@@ -320,6 +320,9 @@ namespace GameFramework.ECS.Systems
             return (null, 0);
         }
 
+        // ========================================================================
+        // [核心修改] 使用通用的 RequestData 代替具体的 DTO 类
+        // ========================================================================
         public async UniTask ConfirmPlacement()
         {
             if (!SystemAPI.HasSingleton<PlacementStateComponent>()) return;
@@ -352,7 +355,7 @@ namespace GameFramework.ECS.Systems
 
             try
             {
-                // [修改] 桥梁直接本地成功，不走网络请求
+                // 桥梁直接本地成功，不走网络请求
                 if (type == PlacementType.Bridge)
                 {
                     isSuccess = true;
@@ -360,30 +363,30 @@ namespace GameFramework.ECS.Systems
                 }
                 else if (type == PlacementType.Building)
                 {
-                    var dto = new BuildingCreateDTO
-                    {
-                        building_id = objectId,
-                        posX = gridPos.x,
-                        posY = gridPos.z,
-                        posZ = gridPos.y,
-                        rotate = rotation
-                    };
-                    var result = await NetworkManager.Instance.SendAsync<GamesDTO>("/building/create", dto);
+                    // [修改] 使用 RequestData 封装数据
+                    var requestData = new RequestData();
+                    requestData.AddField("building_id", objectId);
+                    requestData.AddField("posX", gridPos.x);
+                    requestData.AddField("posY", gridPos.z); // 注意：服务器Y对应Unity Z
+                    requestData.AddField("posZ", gridPos.y); // 注意：服务器Z对应Unity Y
+                    requestData.AddField("rotate", rotation);
+
+                    // 发送通用请求
+                    var result = await NetworkManager.Instance.SendAsync<GamesDTO>("/building/create", requestData);
                     isSuccess = (result != null);
                 }
                 else if (type == PlacementType.Island)
                 {
-                    var dto = new TileCreateDTO
-                    {
-                        tile_type = objectId,
-                        posX = gridPos.x,
-                        posY = gridPos.z,
-                        posZ = gridPos.y
-                    };
+                    // [修改] 使用 RequestData 封装数据
+                    var requestData = new RequestData();
+                    requestData.AddField("tile_type", objectId);
+                    requestData.AddField("posX", gridPos.x);
+                    requestData.AddField("posY", gridPos.z); // 注意：服务器Y对应Unity Z
+                    requestData.AddField("posZ", gridPos.y); // 注意：服务器Z对应Unity Y
 
-                    Debug.Log($"[PlacementSystem] 发送地块请求: ID={objectId} -> ServerPos=({dto.posX},{dto.posY},{dto.posZ})");
+                    Debug.Log($"[PlacementSystem] 发送地块请求: ID={objectId} -> RequestData已封装");
 
-                    var result = await NetworkManager.Instance.SendAsync<GamesDTO>("/tile/create", dto);
+                    var result = await NetworkManager.Instance.SendAsync<GamesDTO>("/tile/create", requestData);
 
                     if (result != null)
                     {
